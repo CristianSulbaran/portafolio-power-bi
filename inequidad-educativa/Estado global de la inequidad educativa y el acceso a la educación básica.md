@@ -1,3 +1,6 @@
+<img width="1719" height="965" alt="image" src="https://github.com/user-attachments/assets/d55b9ad3-76a8-405d-9a25-28d050977b56" />
+
+
 # Informe del Tablero Power BI: Estado Global de la Inequidad Educativa y el Acceso a la Educación Básica
 
 ## 1. Descripción General del Proyecto

@@ -1,39 +1,69 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import unicodedata
 
 # Configuración de página en modo ancho (Wide)
 st.set_page_config(page_title="Panel Ejecutivo de Calidad del Aire - Colombia", layout="wide")
 
-# Carga de datos optimizada con la ruta exacta de tu carpeta
+# Función robusta para normalizar texto por seguridad
+def normalizar_texto(texto):
+    if pd.isna(texto):
+        return texto
+    texto_str = str(texto).strip()
+    nfkd_form = unicodedata.normalize('NFKD', texto_str)
+    texto_sin_tildes = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+    return texto_sin_tildes.title()
+
+# Carga de datos apuntando al nuevo archivo limpio
 @st.cache_data
 def load_data():
-    return pd.read_csv('Dataset_calidad_Aire/airquality_clean.csv')
+    df = pd.read_csv('Dataset_calidad_Aire/airquality_clean_II.csv')
+    
+    if 'Nombre del Departamento' in df.columns:
+        df['Nombre del Departamento'] = df['Nombre del Departamento'].apply(normalizar_texto)
+    if 'Nombre del Municipio' in df.columns:
+        df['Nombre del Municipio'] = df['Nombre del Municipio'].apply(normalizar_texto)
+    if 'Variable' in df.columns:
+        df['Variable'] = df['Variable'].apply(lambda x: str(x).strip().upper())
+        
+    return df
 
 df = load_data()
 
 # ---------------------------------------------------------
-# BARRA LATERAL / FILTROS CORPORATIVOS
+# BARRA LATERAL / FILTROS CORPORATIVOS REDISEÑADOS
 # ---------------------------------------------------------
 st.sidebar.markdown("### Panel de Control")
-st.sidebar.markdown("Filtros y parámetros de segmentación")
+st.sidebar.markdown("Parámetros gerenciales de segmentación")
 
-ciudades_disponibles = sorted(df['Nombre del Departamento'].unique())
-ciudad_sel = st.sidebar.selectbox("Ciudad / Departamento Base", ["Todas las ciudades"] + ciudades_disponibles)
+departamentos_disponibles = sorted(df['Nombre del Departamento'].dropna().unique())
+depto_sel = st.sidebar.selectbox("Departamento / Región", ["Todos los departamentos"] + departamentos_disponibles)
 
-anos_disponibles = sorted(df['Año'].unique())
+anos_disponibles = sorted(df['Año'].dropna().unique())
 val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
-rango_anos = st.sidebar.slider("Período de Análisis", val_min, val_max, (val_min, val_max))
 
-variables_disponibles = sorted(df['Variable'].unique())
+st.sidebar.markdown("---")
+st.sidebar.markdown("Rango Temporal de Análisis")
+col_y1, col_y2 = st.sidebar.columns(2)
+with col_y1:
+    ano_inicio = st.selectbox("Año Inicio", anos_disponibles, index=0)
+with col_y2:
+    ano_fin = st.selectbox("Año Fin", anos_disponibles, index=len(anos_disponibles)-1)
+
+if ano_inicio > ano_fin:
+    ano_inicio, ano_fin = ano_fin, ano_inicio
+
+st.sidebar.markdown("---")
+variables_disponibles = sorted(df['Variable'].dropna().unique())
 contaminante_sel = st.sidebar.selectbox("Contaminante / Variable", variables_disponibles)
 
-# Filtrado dinámico principal
+# Filtrado dinámico principal unificado
 df_filtered = df.copy()
-if ciudad_sel != "Todas las ciudades":
-    df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == ciudad_sel]
+if depto_sel != "Todos los departamentos":
+    df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == depto_sel]
 
-df_filtered = df_filtered[(df_filtered['Año'] >= rango_anos[0]) & (df_filtered['Año'] <= rango_anos[1])]
+df_filtered = df_filtered[(df_filtered['Año'] >= ano_inicio) & (df_filtered['Año'] <= ano_fin)]
 df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
 
 # ---------------------------------------------------------
@@ -93,8 +123,8 @@ if not df_filtered.empty:
     estado_alerta = "CRÍTICO" if promedio_general > limite_oms else "ESTABLE"
     tendencia_texto = "a la alza" if variacion_interanual > 0 else "a la baja"
     st.info(
-        f"**Diagnóstico Gerencial:** Durante el período **{rango_anos[0]}–{rango_anos[1]}**, la concentración de **{contaminante_sel}** "
-        f"en **{ciudad_sel}** muestra un promedio general de **{promedio_general:.2f}**, situándose en un estado **{estado_alerta}**. "
+        f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, la concentración de **{contaminante_sel}** "
+        f"en **{depto_sel}** muestra un promedio general de **{promedio_general:.2f}**, situándose en un estado **{estado_alerta}**. "
         f"Se observa una variación interanual **{tendencia_texto}** de **{variacion_interanual:+.1f}%**, con **{municipios_cobertura}** municipios "
         f"monitoreados y un total de **{registros_criticos}** eventos excediendo el estándar de la OMS."
     )
@@ -172,12 +202,11 @@ with tab_comparativa:
     
     col_comp1, col_comp2 = st.columns(2)
     with col_comp1:
-        dep1 = st.selectbox("Seleccionar Región A", ciudades_disponibles, index=0)
+        dep1 = st.selectbox("Seleccionar Región A", departamentos_disponibles, index=0)
     with col_comp2:
-        dep2 = st.selectbox("Seleccionar Región B", ciudades_disponibles, index=min(1, len(ciudades_disponibles)-1))
+        dep2 = st.selectbox("Seleccionar Región B", departamentos_disponibles, index=min(1, len(departamentos_disponibles)-1))
     
-    # Filtrado cruzado para la comparativa
-    df_comp = df[(df['Variable'] == contaminante_sel) & (df['Año'] >= rango_anos[0]) & (df['Año'] <= rango_anos[1])]
+    df_comp = df[(df['Variable'] == contaminante_sel) & (df['Año'] >= ano_inicio) & (df['Año'] <= ano_fin)]
     df_comp_filtered = df_comp[df_comp['Nombre del Departamento'].isin([dep1, dep2])]
     
     if not df_comp_filtered.empty:
@@ -196,7 +225,6 @@ with tab_comparativa:
         fig_comp.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=420)
         st.plotly_chart(fig_comp, use_container_width=True)
         
-        # Tabla resumen comparativa
         st.markdown("#### Resumen Estadístico Comparativo")
         df_resumen_comp = df_comp_filtered.groupby('Nombre del Departamento').agg(
             Promedio_General=('Promedio', 'mean'),
@@ -217,7 +245,7 @@ with tab_exportar:
             label="Descargar Dataset Filtrado (.csv)",
             data=csv_data,
             file_name=f"reporte_calidad_aire_{contaminante_sel}.csv",
-            mime="text/css" if False else "text/csv",
+            mime="text/csv",
         )
         st.dataframe(df_filtered.head(100), use_container_width=True)
         st.caption("Vista previa de los primeros 100 registros correspondientes a la selección actual.")

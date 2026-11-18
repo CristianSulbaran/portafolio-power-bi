@@ -19,7 +19,7 @@ st.sidebar.markdown("### Panel de Control")
 st.sidebar.markdown("Filtros y parámetros de segmentación")
 
 ciudades_disponibles = sorted(df['Nombre del Departamento'].unique())
-ciudad_sel = st.sidebar.selectbox("Ciudad / Departamento", ["Todas las ciudades"] + ciudades_disponibles)
+ciudad_sel = st.sidebar.selectbox("Ciudad / Departamento Base", ["Todas las ciudades"] + ciudades_disponibles)
 
 anos_disponibles = sorted(df['Año'].unique())
 val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
@@ -28,7 +28,7 @@ rango_anos = st.sidebar.slider("Período de Análisis", val_min, val_max, (val_m
 variables_disponibles = sorted(df['Variable'].unique())
 contaminante_sel = st.sidebar.selectbox("Contaminante / Variable", variables_disponibles)
 
-# Filtrado dinámico
+# Filtrado dinámico principal
 df_filtered = df.copy()
 if ciudad_sel != "Todas las ciudades":
     df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == ciudad_sel]
@@ -42,7 +42,6 @@ df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
 st.markdown("### Panel Ejecutivo de Calidad del Aire")
 st.markdown("Sistema de Monitoreo Analítico y Evaluación de Riesgo Ambiental • IDEAM")
 
-# Cálculos de KPIs principales
 promedio_general = df_filtered['Promedio'].mean() if not df_filtered.empty else 0
 total_registros = len(df_filtered)
 limite_oms = 15.0
@@ -56,7 +55,6 @@ if not df_filtered.empty:
     registros_criticos = len(df_filtered[df_filtered['Promedio'] > limite_oms])
     municipios_cobertura = df_filtered['Nombre del Municipio'].nunique()
     
-    # Cálculo de variación interanual (primer año vs último año del filtro)
     df_Anos_prom = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
     if len(df_Anos_prom) >= 2:
         val_inicial = df_Anos_prom.iloc[0]['Promedio']
@@ -72,14 +70,14 @@ else:
     municipios_cobertura = 0
     variacion_interanual = 0.0
 
-# Fila 1 de KPIs (Core Analítico)
+# Fila 1 de KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(label=f"PROMEDIO {contaminante_sel}", value=f"{promedio_general:.2f}", delta=f"{brecha_oms:+.1f}% vs Límite OMS", delta_color="inverse")
 col2.metric(label="VOLATILIDAD (EST. DEV)", value=f"{volatilidad:.2f}", delta="Estabilidad estadística")
 col3.metric(label="MUNICIPIO CRÍTICO", value=f"{mun_critico}", delta=f"Pico: {val_critico:.1f}")
 col4.metric(label="MUESTRAS ANALIZADAS", value=f"{total_registros:,}".replace(",", "."))
 
-# Fila 2 de KPIs (Riesgo y Cobertura Operativa)
+# Fila 2 de KPIs
 col5, col6, col7, col8 = st.columns(4)
 col5.metric(label="MÁXIMO ABSOLUTO", value=f"{max_absoluto:.2f}", delta="Pico histórico registrado")
 col6.metric(label="REGISTROS CRÍTICOS", value=f"{registros_criticos:,}".replace(",", "."), delta=f"Superan {limite_oms} µg/m³", delta_color="inverse")
@@ -104,9 +102,9 @@ if not df_filtered.empty:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# SECCIÓN DE PESTAÑAS (TABS) CORPORATIVAS
+# SECCIÓN DE PESTAÑAS (TABS) CORPORATIVAS AMPLIADAS
 # ---------------------------------------------------------
-tab_general, tab_exportar = st.tabs(["Analítica General y Mapas", "Repositorio y Exportación"])
+tab_general, tab_comparativa, tab_exportar = st.tabs(["Analítica General y Mapas", "Comparativa Territorial", "Repositorio y Exportación"])
 
 with tab_general:
     col_mapa, col_grafico = st.columns([1, 1.5])
@@ -162,12 +160,52 @@ with tab_general:
             color='Promedio',
             color_continuous_scale='Oranges'
         )
-        # CORRECCIÓN: x=limite_oms en lugar de y=limite_oms
         fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
         fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin={"r":0,"t":10,"l":0,"b":0}, height=380)
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("No hay suficientes datos para el ranking.")
+
+with tab_comparativa:
+    st.markdown("#### Análisis de Comparativa Cruzada por Departamento")
+    st.markdown("Seleccione dos departamentos diferentes para contrastar su comportamiento histórico bajo el contaminante seleccionado.")
+    
+    col_comp1, col_comp2 = st.columns(2)
+    with col_comp1:
+        dep1 = st.selectbox("Seleccionar Región A", ciudades_disponibles, index=0)
+    with col_comp2:
+        dep2 = st.selectbox("Seleccionar Región B", ciudades_disponibles, index=min(1, len(ciudades_disponibles)-1))
+    
+    # Filtrado cruzado para la comparativa
+    df_comp = df[(df['Variable'] == contaminante_sel) & (df['Año'] >= rango_anos[0]) & (df['Año'] <= rango_anos[1])]
+    df_comp_filtered = df_comp[df_comp['Nombre del Departamento'].isin([dep1, dep2])]
+    
+    if not df_comp_filtered.empty:
+        df_comp_trend = df_comp_filtered.groupby(['Año', 'Nombre del Departamento'])['Promedio'].mean().reset_index()
+        
+        fig_comp = px.line(
+            df_comp_trend,
+            x='Año',
+            y='Promedio',
+            color='Nombre del Departamento',
+            markers=True,
+            line_shape='spline',
+            title=f"Comparativa Histórica de {contaminante_sel}: {dep1} vs {dep2}"
+        )
+        fig_comp.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
+        fig_comp.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=420)
+        st.plotly_chart(fig_comp, use_container_width=True)
+        
+        # Tabla resumen comparativa
+        st.markdown("#### Resumen Estadístico Comparativo")
+        df_resumen_comp = df_comp_filtered.groupby('Nombre del Departamento').agg(
+            Promedio_General=('Promedio', 'mean'),
+            Maximo_Registrado=('Máximo' if 'Máximo' in df_comp_filtered.columns else 'Promedio', 'max'),
+            Total_Muestras=('Promedio', 'count')
+        ).reset_index()
+        st.dataframe(df_resumen_comp, use_container_width=True)
+    else:
+        st.warning("No hay suficientes datos cruzados para generar la comparativa con las regiones seleccionadas.")
 
 with tab_exportar:
     st.markdown("#### Exportación de Datos Procesados")
@@ -179,7 +217,7 @@ with tab_exportar:
             label="Descargar Dataset Filtrado (.csv)",
             data=csv_data,
             file_name=f"reporte_calidad_aire_{contaminante_sel}.csv",
-            mime="text/csv",
+            mime="text/css" if False else "text/csv",
         )
         st.dataframe(df_filtered.head(100), use_container_width=True)
         st.caption("Vista previa de los primeros 100 registros correspondientes a la selección actual.")

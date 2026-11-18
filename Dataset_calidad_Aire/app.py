@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # Configuración de página en modo ancho (Wide)
-st.set_page_config(page_title="Panel de Calidad del Aire - Colombia", layout="wide")
+st.set_page_config(page_title="Panel Ejecutivo de Calidad del Aire - Colombia", layout="wide")
 
 # Carga de datos optimizada con la ruta exacta de tu carpeta
 @st.cache_data
@@ -13,10 +13,10 @@ def load_data():
 df = load_data()
 
 # ---------------------------------------------------------
-# BARRA LATERAL / FILTROS PRINCIPALES
+# BARRA LATERAL / FILTROS CORPORATIVOS
 # ---------------------------------------------------------
 st.sidebar.markdown("### Panel de Control")
-st.sidebar.markdown("Filtros globales del sistema")
+st.sidebar.markdown("Filtros y parámetros de segmentación")
 
 ciudades_disponibles = sorted(df['Nombre del Departamento'].unique())
 ciudad_sel = st.sidebar.selectbox("Ciudad / Departamento", ["Todas las ciudades"] + ciudades_disponibles)
@@ -37,49 +37,82 @@ df_filtered = df_filtered[(df_filtered['Año'] >= rango_anos[0]) & (df_filtered[
 df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
 
 # ---------------------------------------------------------
-# ENCABEZADO Y 4 NUEVOS KPIS EJECUTIVOS
+# ENCABEZADO Y BLOQUE DE KPIs EMPRESARIALES (DOBLE FILA)
 # ---------------------------------------------------------
 st.markdown("### Panel Ejecutivo de Calidad del Aire")
-st.markdown("Colombia • Monitoreo de Datos Históricos y Evaluación de Riesgo IDEAM")
+st.markdown("Sistema de Monitoreo Analítico y Evaluación de Riesgo Ambiental • IDEAM")
 
-col1, col2, col3, col4 = st.columns(4)
-
+# Cálculos de KPIs principales
 promedio_general = df_filtered['Promedio'].mean() if not df_filtered.empty else 0
 total_registros = len(df_filtered)
+limite_oms = 15.0
+brecha_oms = ((promedio_general - limite_oms) / limite_oms) * 100 if limite_oms > 0 else 0
+volatilidad = df_filtered['Promedio'].std() if not df_filtered.empty else 0
 
-# Cálculo de % de excedencia sobre el límite OMS (15 µg/m³ como referencia general)
-if total_registros > 0:
-    excedencias_count = len(df_filtered[df_filtered['Promedio'] > 15])
-    porcentaje_excedencia = (excedencias_count / total_registros) * 100
-else:
-    porcentaje_excedencia = 0
-
-# Municipio más crítico bajo los filtros actuales
 if not df_filtered.empty:
     mun_critico = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().idxmax()
     val_critico = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().max()
+    max_absoluto = df_filtered['Máximo'].max() if 'Máximo' in df_filtered.columns else df_filtered['Promedio'].max()
+    registros_criticos = len(df_filtered[df_filtered['Promedio'] > limite_oms])
+    municipios_cobertura = df_filtered['Nombre del Municipio'].nunique()
+    
+    # Cálculo de variación interanual (primer año vs último año del filtro)
+    df_Anos_prom = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
+    if len(df_Anos_prom) >= 2:
+        val_inicial = df_Anos_prom.iloc[0]['Promedio']
+        val_final = df_Anos_prom.iloc[-1]['Promedio']
+        variacion_interanual = ((val_final - val_inicial) / val_inicial) * 100 if val_inicial > 0 else 0
+    else:
+        variacion_interanual = 0.0
 else:
     mun_critico = "N/A"
     val_critico = 0
+    max_absoluto = 0
+    registros_criticos = 0
+    municipios_cobertura = 0
+    variacion_interanual = 0.0
 
-col1.metric(label=f"PROMEDIO {contaminante_sel}", value=f"{promedio_general:.2f}")
-col2.metric(label="EXCEDENCIA LÍMITE OMS", value=f"{porcentaje_excedencia:.1f}%", delta=f"{excedencias_count} registros críticos", delta_color="inverse")
-col3.metric(label="MUNICIPIO MÁS AFECTADO", value=f"{mun_critico}", delta=f"{val_critico:.1f} prom.")
-col4.metric(label="REGISTROS ANALIZADOS", value=f"{total_registros}")
+# Fila 1 de KPIs (Core Analítico)
+col1, col2, col3, col4 = st.columns(4)
+col1.metric(label=f"PROMEDIO {contaminante_sel}", value=f"{promedio_general:.2f}", delta=f"{brecha_oms:+.1f}% vs Límite OMS", delta_color="inverse")
+col2.metric(label="VOLATILIDAD (EST. DEV)", value=f"{volatilidad:.2f}", delta="Estabilidad estadística")
+col3.metric(label="MUNICIPIO CRÍTICO", value=f"{mun_critico}", delta=f"Pico: {val_critico:.1f}")
+col4.metric(label="MUESTRAS ANALIZADAS", value=f"{total_registros:,}".replace(",", "."))
+
+# Fila 2 de KPIs (Riesgo y Cobertura Operativa)
+col5, col6, col7, col8 = st.columns(4)
+col5.metric(label="MÁXIMO ABSOLUTO", value=f"{max_absoluto:.2f}", delta="Pico histórico registrado")
+col6.metric(label="REGISTROS CRÍTICOS", value=f"{registros_criticos:,}".replace(",", "."), delta=f"Superan {limite_oms} µg/m³", delta_color="inverse")
+col7.metric(label="TENDENCIA PERÍODO", value=f"{variacion_interanual:+.1f}%", delta="Variación inicio vs fin", delta_color="inverse")
+col8.metric(label="MUNICIPIOS ACTIVOS", value=f"{municipios_cobertura}", delta="Cobertura territorial")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# SECCIÓN DE PESTAÑAS (TABS) PARA ORGANIZAR EL CONTENIDO
+# NARRATIVA Y DIAGNÓSTICO EJECUTIVO AUTOMÁTICO
 # ---------------------------------------------------------
-tab_general, tab_exportar = st.tabs([" Vista General y Mapas", " Exportar Datos"])
+if not df_filtered.empty:
+    estado_alerta = "CRÍTICO" if promedio_general > limite_oms else "ESTABLE"
+    tendencia_texto = "a la alza" if variacion_interanual > 0 else "a la baja"
+    st.info(
+        f"**Diagnóstico Gerencial:** Durante el período **{rango_anos[0]}–{rango_anos[1]}**, la concentración de **{contaminante_sel}** "
+        f"en **{ciudad_sel}** muestra un promedio general de **{promedio_general:.2f}**, situándose en un estado **{estado_alerta}**. "
+        f"Se observa una variación interanual **{tendencia_texto}** de **{variacion_interanual:+.1f}%**, con **{municipios_cobertura}** municipios "
+        f"monitoreados y un total de **{registros_criticos}** eventos excediendo el estándar de la OMS."
+    )
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# SECCIÓN DE PESTAÑAS (TABS) CORPORATIVAS
+# ---------------------------------------------------------
+tab_general, tab_exportar = st.tabs(["Analítica General y Mapas", "Repositorio y Exportación"])
 
 with tab_general:
-    # Fila 1: Mapa Geográfico y Tendencia Anual
     col_mapa, col_grafico = st.columns([1, 1.5])
 
     with col_mapa:
-        st.subheader(" Distribución Geográfica")
+        st.markdown("#### Distribución Geográfica de Estaciones")
         if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
             df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
             
@@ -91,15 +124,14 @@ with tab_general:
                 size='Promedio',
                 hover_name='Nombre del Municipio',
                 color_continuous_scale='Viridis',
-                title=f"Estaciones - {contaminante_sel}"
             )
-            fig_map.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=400, xaxis_title="Longitud", yaxis_title="Latitud")
+            fig_map.update_layout(margin={"r":0,"t":10,"l":0,"b":0}, height=390, xaxis_title="Longitud", yaxis_title="Latitud")
             st.plotly_chart(fig_map, use_container_width=True)
         else:
             st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 
     with col_grafico:
-        st.subheader(f" Tendencia Anual — {contaminante_sel}")
+        st.markdown(f"#### Tendencia Histórica Anual — {contaminante_sel}")
         if not df_filtered.empty:
             df_tendencia = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
             fig_line = px.line(
@@ -109,15 +141,14 @@ with tab_general:
                 markers=True,
                 line_shape='spline'
             )
-            fig_line.add_hline(y=15, line_dash="dash", line_color="red", annotation_text="Límite OMS (15 µg/m³)")
-            fig_line.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=400)
+            fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS (15 µg/m³)")
+            fig_line.update_layout(margin={"r":0,"t":10,"l":0,"b":0}, height=390)
             st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.warning("No hay datos para mostrar en la tendencia.")
 
-    # Fila 2: Ranking de Municipios Más Afectados
     st.markdown("---")
-    st.subheader(f" Ranking de Municipios más Afectados — {contaminante_sel}")
+    st.markdown(f"#### Ranking de Municipios con Mayor Concentración — {contaminante_sel}")
     if not df_filtered.empty:
         df_ranking = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().reset_index()
         df_ranking = df_ranking.sort_values(by='Promedio', ascending=False).head(10)
@@ -131,25 +162,25 @@ with tab_general:
             color='Promedio',
             color_continuous_scale='Oranges'
         )
-        fig_bar.add_vline(x=15, line_dash="dash", line_color="red", annotation_text="Límite OMS")
+        fig_bar.add_vline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
         fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin={"r":0,"t":10,"l":0,"b":0}, height=380)
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("No hay suficientes datos para el ranking.")
 
 with tab_exportar:
-    st.subheader("Descarga de Datos Procesados")
-    st.markdown("Puedes descargar la porción de datos filtrados actualmente en el panel en formato CSV para análisis adicionales.")
+    st.markdown("#### Exportación de Datos Procesados")
+    st.markdown("Descargue el conjunto de datos filtrados actualmente para integraciones o reportes externos en formato estructurado.")
     
     if not df_filtered.empty:
         csv_data = df_filtered.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="Descargar datos filtrados (CSV)",
+            label="Descargar Dataset Filtrado (.csv)",
             data=csv_data,
-            file_name=f"calidad_aire_{contaminante_sel}_filtrado.csv",
+            file_name=f"reporte_calidad_aire_{contaminante_sel}.csv",
             mime="text/csv",
         )
         st.dataframe(df_filtered.head(100), use_container_width=True)
-        st.caption("Mostrando una vista previa de los primeros 100 registros filtrados.")
+        st.caption("Vista previa de los primeros 100 registros correspondientes a la selección actual.")
     else:
-        st.warning("No hay datos disponibles para exportar con los filtros seleccionados.")
+        st.warning("No hay registros disponibles para exportar con los filtros actuales.")

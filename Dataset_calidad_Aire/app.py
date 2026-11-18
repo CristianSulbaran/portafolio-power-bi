@@ -32,13 +32,21 @@ def load_data():
 df = load_data()
 
 # ---------------------------------------------------------
-# BARRA LATERAL / FILTROS CORPORATIVOS REDISEÑADOS
+# BARRA LATERAL / FILTROS CORPORATIVOS Y SELECCIÓN DE CIUDAD
 # ---------------------------------------------------------
 st.sidebar.markdown("### Panel de Control")
 st.sidebar.markdown("Parámetros gerenciales de segmentación")
 
 departamentos_disponibles = sorted(df['Nombre del Departamento'].dropna().unique())
 depto_sel = st.sidebar.selectbox("Departamento / Región", ["Todos los departamentos"] + departamentos_disponibles)
+
+# Filtro dinámico de Municipios/Ciudades según el departamento seleccionado
+if depto_sel != "Todos los departamentos":
+    municipios_disponibles = sorted(df[df['Nombre del Departamento'] == depto_sel]['Nombre del Municipio'].dropna().unique())
+else:
+    municipios_disponibles = sorted(df['Nombre del Municipio'].dropna().unique())
+
+municipio_sel = st.sidebar.selectbox("Ciudad / Municipio Específico", ["Todas las ciudades"] + municipios_disponibles)
 
 anos_disponibles = sorted(df['Año'].dropna().unique())
 val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
@@ -62,6 +70,9 @@ contaminante_sel = st.sidebar.selectbox("Contaminante / Variable Evaluada", vari
 df_filtered = df.copy()
 if depto_sel != "Todos los departamentos":
     df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == depto_sel]
+
+if municipio_sel != "Todas las ciudades":
+    df_filtered = df_filtered[df_filtered['Nombre del Municipio'] == municipio_sel]
 
 df_filtered = df_filtered[(df_filtered['Año'] >= ano_inicio) & (df_filtered['Año'] <= ano_fin)]
 df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
@@ -127,7 +138,6 @@ with st.expander("Guía de Lectura y Glosario Técnico Detallado (Haga clic para
         """
     )
     
-    # Diccionario oficial de descripciones para cubrir cualquier variable del dataset
     glosario_dict = {
         "CO": "**Monóxido de Carbono (CO):** Gas incoloro e inodoro generado principalmente por la combustión incompleta en fuentes móviles (vehículos y transporte) e industriales.",
         "PM10": "**Material Particulado PM10:** Pequeñas partículas sólidas o líquidas de polvo, cenizas, hollín o humo con diámetro menor a 10 micras que ingresan al sistema respiratorio alto.",
@@ -139,7 +149,6 @@ with st.expander("Guía de Lectura y Glosario Técnico Detallado (Haga clic para
         "NOX": "**Óxidos de Nitrógeno (NOx):** Grupo de gases compuestos por nitrógeno y oxígeno, altamente reactivos y generados en procesos de combustión urbana e industrial."
     }
     
-    # Mostrar dinámicamente las descripciones de las variables que realmente tiene el dataset actual
     for var in variables_disponibles:
         descrip = glosario_dict.get(var, f"**{var}:** Variable ambiental registrada en el sistema de monitoreo de calidad del aire del IDEAM.")
         st.markdown(f"- {descrip}")
@@ -156,12 +165,16 @@ st.markdown("---")
 # ---------------------------------------------------------
 # NARRATIVA Y DIAGNÓSTICO EJECUTIVO AUTOMÁTICO
 # ---------------------------------------------------------
+ubicacion_texto = f"en **{municipio_sel} ({depto_sel})**" if municipio_sel != "Todas las ciudades" else f"en **{depto_sel}**"
+if depto_sel == "Todos los departamentos":
+    ubicacion_texto = "a nivel nacional"
+
 if not df_filtered.empty:
     estado_alerta = "CRÍTICO" if promedio_general > limite_oms else "ESTABLE"
     tendencia_texto = "a la alza" if variacion_interanual > 0 else "a la baja"
     st.info(
         f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, la concentración media de **{contaminante_sel}** "
-        f"en **{depto_sel}** se sitúa en **{promedio_general:.2f}**, un nivel clasificado como **{estado_alerta}** "
+        f"{ubicacion_texto} se sitúa en **{promedio_general:.2f}**, un nivel clasificado como **{estado_alerta}** "
         f"frente al umbral internacional de referencia (15.0). Se registra una tendencia **{tendencia_texto}** del **{variacion_interanual:+.1f}%**, "
         f"evidenciando presión ambiental en **{municipios_cobertura}** municipios analizados."
     )
@@ -177,10 +190,11 @@ with tab_general:
     col_mapa, col_grafico = st.columns([1, 1.5])
 
     with col_mapa:
-        st.markdown("#### Distribución Espacial de Estaciones")
+        st.markdown("#### Mapa Interactivo de Estaciones")
         if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
             df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
             
+            # Mapa interactivo mejorado con Plotly Scatter
             fig_map = px.scatter(
                 df_map_data,
                 x='Longitud',
@@ -188,16 +202,18 @@ with tab_general:
                 color='Promedio',
                 size='Promedio',
                 hover_name='Nombre del Municipio',
+                hover_data=['Nombre del Departamento', 'Promedio'],
                 color_continuous_scale='Viridis',
-                title=f"Ubicación Geográfica y Niveles de {contaminante_sel}"
+                title=f"Distribución Espacial — {contaminante_sel}"
             )
             fig_map.update_layout(
                 margin={"r":0,"t":30,"l":0,"b":0}, 
                 height=390, 
-                xaxis_title="Coordenada Longitud (Oeste/Este)", 
-                yaxis_title="Coordenada Latitud (Norte/Sur)"
+                xaxis_title="Longitud Geográfica", 
+                yaxis_title="Latitud Geográfica"
             )
             st.plotly_chart(fig_map, use_container_width=True)
+            st.caption("Nota: Haga clic y arrastre para hacer zoom en zonas específicas del mapa.")
         else:
             st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 

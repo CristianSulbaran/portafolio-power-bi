@@ -58,7 +58,7 @@ st.sidebar.markdown("---")
 variables_disponibles = sorted(df['Variable'].dropna().unique())
 contaminante_sel = st.sidebar.selectbox("Contaminante / Variable Evaluada", variables_disponibles)
 
-# Filtrado dinámico principal (Limpio, sin interferencias de ciudades en el sidebar)
+# Filtrado dinámico principal
 df_filtered = df.copy()
 if depto_sel != "Todos los departamentos":
     df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == depto_sel]
@@ -177,32 +177,42 @@ with tab_general:
     col_mapa, col_grafico = st.columns([1, 1.5])
 
     with col_mapa:
-        titulo_mapa = f"Estaciones y Municipios — {depto_sel}" if depto_sel != "Todos los departamentos" else f"Distribución Nacional de Municipios — {contaminante_sel}"
+        titulo_mapa = f"Estaciones en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico de Colombia — {contaminante_sel}"
         st.markdown(f"#### {titulo_mapa}")
         
         if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
             df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
             
-            # Mapa inteligente que muestra las ciudades del departamento seleccionado o de todo el país
-            fig_map = px.scatter(
+            # MAPA GEOGRÁFICO REAL DE COLOMBIA CON PLOTLY GEO
+            fig_map = px.scatter_geo(
                 df_map_data,
-                x='Longitud',
-                y='Latitud',
+                lat='Latitud',
+                lon='Longitud',
                 color='Promedio',
                 size='Promedio',
                 hover_name='Nombre del Municipio',
                 hover_data=['Nombre del Departamento', 'Promedio'],
                 color_continuous_scale='Viridis',
-                title=f"Dispersión Geográfica de Ciudades ({contaminante_sel})"
+                projection='natural earth',
+                title=f"Ubicación Espacial de Estaciones ({contaminante_sel})"
             )
+            
+            # Centrar el mapa geográfico en Colombia (Lat: ~4.5, Lon: -74.0) con zoom adecuado
+            fig_map.update_geos(
+                center=dict(lat=4.5709, lon=-74.2973),
+                zoom=4.5,
+                showcountries=True, countrycolor="Black",
+                showcoastlines=True, coastlinecolor="Gray",
+                showland=True, landcolor="rgb(245, 245, 245)",
+                showocean=True, oceancolor="rgb(230, 242, 255)"
+            )
+            
             fig_map.update_layout(
                 margin={"r":0,"t":30,"l":0,"b":0}, 
-                height=390, 
-                xaxis_title="Coordenada Longitud", 
-                yaxis_title="Coordenada Latitud"
+                height=390
             )
             st.plotly_chart(fig_map, use_container_width=True)
-            st.caption("Nota: El mapa muestra automáticamente los municipios activos según el departamento seleccionado en el panel izquierdo.")
+            st.caption("Nota: Mapa geográfico proyectado sobre Colombia. Los puntos reflejan las estaciones y su concentración.")
         else:
             st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 

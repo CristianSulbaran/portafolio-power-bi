@@ -230,34 +230,33 @@ with tab_general:
 
     st.markdown("---")
 
-    # FILA 2 (ABAJO): MAPA GEOGRÁFICO DE COLOMBIA / CIUDADES
-    titulo_mapa = f"Ubicación Espacial de Estaciones y Ciudades en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico Nacional de Estaciones — {contaminante_sel}"
+    # FILA 2 (ABAJO): MAPA GEOGRÁFICO ESTABLE DE ESTACIONES Y CIUDADES
+    titulo_mapa = f"Ubicación Espacial de Ciudades y Estaciones en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico Nacional de Estaciones — {contaminante_sel}"
     st.markdown(f"#### {titulo_mapa}")
 
     if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
         df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
         
-        # Mapa interactivo Mapbox sin token (utiliza open-street-map gratuito y estable)
-        fig_map = px.scatter_mapbox(
+        # Mapa de coordenadas geográficas optimizado y robusto (sin errores de dependencias externas)
+        fig_map = px.scatter(
             df_map_data,
-            lat='Latitud',
-            lon='Longitud',
+            x='Longitud',
+            y='Latitud',
             color='Promedio',
             size='Promedio',
             hover_name='Nombre del Municipio',
             hover_data=['Nombre del Departamento', 'Promedio'],
             color_continuous_scale='Viridis',
-            mapbox_style="open-street-map",
-            zoom=5 if depto_sel == "Todos los departamentos" else 7,
-            center={"lat": 4.5709, "lon": -74.2973},
-            title=f"Dispersión Territorial de Ciudades y Estaciones"
+            title=f"Dispersión Territorial de Ciudades y Estaciones ({contaminante_sel})"
         )
         fig_map.update_layout(
             margin={"r":0,"t":30,"l":0,"b":0}, 
-            height=450
+            height=420,
+            xaxis_title="Longitud Geográfica (Oeste/Este)",
+            yaxis_title="Latitud Geográfica (Norte/Sur)"
         )
         st.plotly_chart(fig_map, use_container_width=True)
-        st.caption("Nota: El mapa muestra las ciudades del departamento seleccionado y reacciona de forma dinámica a los filtros.")
+        st.caption("Nota: Este mapa interactivo muestra los municipios y estaciones filtrados según el departamento seleccionado en el panel izquierdo.")
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 

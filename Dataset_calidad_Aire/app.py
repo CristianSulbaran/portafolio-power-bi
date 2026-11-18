@@ -162,7 +162,8 @@ with tab_general:
             color='Promedio',
             color_continuous_scale='Oranges'
         )
-        fig_bar.add_vline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
+        # CORRECCIÓN: x=limite_oms en lugar de y=limite_oms
+        fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
         fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin={"r":0,"t":10,"l":0,"b":0}, height=380)
         st.plotly_chart(fig_bar, use_container_width=True)
     else:

@@ -5,7 +5,7 @@ import plotly.express as px
 # Configuración de página en modo ancho (Wide)
 st.set_page_config(page_title="Panel de Calidad del Aire - Colombia", layout="wide")
 
-# Carga de datos con la ruta de tu carpeta
+# Carga de datos optimizada con la ruta exacta de tu carpeta
 @st.cache_data
 def load_data():
     return pd.read_csv('Dataset_calidad_Aire/airquality_clean.csv')
@@ -15,17 +15,15 @@ df = load_data()
 # ---------------------------------------------------------
 # BARRA LATERAL / FILTROS PRINCIPALES
 # ---------------------------------------------------------
-st.markdown("### 📊 Panel de Calidad del Aire")
-st.markdown("Colombia • Datos históricos (2011–2025)")
-
-st.sidebar.header("⚙️ FILTROS")
+st.sidebar.markdown("### Panel de Control")
+st.sidebar.markdown("Filtros globales del sistema")
 
 ciudades_disponibles = sorted(df['Nombre del Departamento'].unique())
 ciudad_sel = st.sidebar.selectbox("Ciudad / Departamento", ["Todas las ciudades"] + ciudades_disponibles)
 
 anos_disponibles = sorted(df['Año'].unique())
 val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
-rango_anos = st.sidebar.slider("Período", val_min, val_max, (val_min, val_max))
+rango_anos = st.sidebar.slider("Período de Análisis", val_min, val_max, (val_min, val_max))
 
 variables_disponibles = sorted(df['Variable'].unique())
 contaminante_sel = st.sidebar.selectbox("Contaminante / Variable", variables_disponibles)
@@ -39,90 +37,119 @@ df_filtered = df_filtered[(df_filtered['Año'] >= rango_anos[0]) & (df_filtered[
 df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
 
 # ---------------------------------------------------------
-# 4 TARJETAS DE KPIs SUPERIORES (Estilo Ejecutivo)
+# ENCABEZADO Y 4 NUEVOS KPIS EJECUTIVOS
 # ---------------------------------------------------------
+st.markdown("### Panel Ejecutivo de Calidad del Aire")
+st.markdown("Colombia • Monitoreo de Datos Históricos y Evaluación de Riesgo IDEAM")
+
 col1, col2, col3, col4 = st.columns(4)
 
 promedio_general = df_filtered['Promedio'].mean() if not df_filtered.empty else 0
-max_registrado = df_filtered['Máximo'].max() if not df_filtered.empty else 0
 total_registros = len(df_filtered)
-excedencias_calc = len(df_filtered[df_filtered['Promedio'] > 15]) # Umbral OMS
+
+# Cálculo de % de excedencia sobre el límite OMS (15 µg/m³ como referencia general)
+if total_registros > 0:
+    excedencias_count = len(df_filtered[df_filtered['Promedio'] > 15])
+    porcentaje_excedencia = (excedencias_count / total_registros) * 100
+else:
+    porcentaje_excedencia = 0
+
+# Municipio más crítico bajo los filtros actuales
+if not df_filtered.empty:
+    mun_critico = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().idxmax()
+    val_critico = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().max()
+else:
+    mun_critico = "N/A"
+    val_critico = 0
 
 col1.metric(label=f"PROMEDIO {contaminante_sel}", value=f"{promedio_general:.2f}")
-col2.metric(label="VALOR MÁXIMO", value=f"{max_registrado:.2f}")
-col3.metric(label="REGISTROS TOTALES", value=f"{total_registros}")
-col4.metric(label="EVENTOS CRÍTICOS (>15)", value=f"{excedencias_calc} registros")
+col2.metric(label="EXCEDENCIA LÍMITE OMS", value=f"{porcentaje_excedencia:.1f}%", delta=f"{excedencias_count} registros críticos", delta_color="inverse")
+col3.metric(label="MUNICIPIO MÁS AFECTADO", value=f"{mun_critico}", delta=f"{val_critico:.1f} prom.")
+col4.metric(label="REGISTROS ANALIZADOS", value=f"{total_registros}")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# MAPA GEOGRÁFICO (Estable vía Plotly Scatter) Y TENDENCIA
+# SECCIÓN DE PESTAÑAS (TABS) PARA ORGANIZAR EL CONTENIDO
 # ---------------------------------------------------------
-col_mapa, col_grafico = st.columns([1, 1.5])
+tab_general, tab_exportar = st.tabs([" Vista General y Mapas", " Exportar Datos"])
 
-with col_mapa:
-    st.subheader("🌍 Distribución Geográfica")
-    if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
-        df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
-        
-        # Gráfico de dispersión geográfico robusto (sin errores de Mapbox)
-        fig_map = px.scatter(
-            df_map_data,
-            x='Longitud',
-            y='Latitud',
-            color='Promedio',
-            size='Promedio',
-            hover_name='Nombre del Municipio',
-            color_continuous_scale='Viridis',
-            title=f"Estaciones - {contaminante_sel}"
-        )
-        fig_map.update_layout(
-            margin={"r":0,"t":30,"l":0,"b":0}, 
-            height=420,
-            xaxis_title="Longitud",
-            yaxis_title="Latitud"
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
-    else:
-        st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
+with tab_general:
+    # Fila 1: Mapa Geográfico y Tendencia Anual
+    col_mapa, col_grafico = st.columns([1, 1.5])
 
-with col_grafico:
-    st.subheader(f"📈 Tendencia Anual - {contaminante_sel}")
+    with col_mapa:
+        st.subheader(" Distribución Geográfica")
+        if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
+            df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
+            
+            fig_map = px.scatter(
+                df_map_data,
+                x='Longitud',
+                y='Latitud',
+                color='Promedio',
+                size='Promedio',
+                hover_name='Nombre del Municipio',
+                color_continuous_scale='Viridis',
+                title=f"Estaciones - {contaminante_sel}"
+            )
+            fig_map.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=400, xaxis_title="Longitud", yaxis_title="Latitud")
+            st.plotly_chart(fig_map, use_container_width=True)
+        else:
+            st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
+
+    with col_grafico:
+        st.subheader(f" Tendencia Anual — {contaminante_sel}")
+        if not df_filtered.empty:
+            df_tendencia = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
+            fig_line = px.line(
+                df_tendencia, 
+                x='Año', 
+                y='Promedio', 
+                markers=True,
+                line_shape='spline'
+            )
+            fig_line.add_hline(y=15, line_dash="dash", line_color="red", annotation_text="Límite OMS (15 µg/m³)")
+            fig_line.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=400)
+            st.plotly_chart(fig_line, use_container_width=True)
+        else:
+            st.warning("No hay datos para mostrar en la tendencia.")
+
+    # Fila 2: Ranking de Municipios Más Afectados
+    st.markdown("---")
+    st.subheader(f" Ranking de Municipios más Afectados — {contaminante_sel}")
     if not df_filtered.empty:
-        df_tendencia = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
-        fig_line = px.line(
-            df_tendencia, 
-            x='Año', 
-            y='Promedio', 
-            markers=True,
-            line_shape='spline'
+        df_ranking = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().reset_index()
+        df_ranking = df_ranking.sort_values(by='Promedio', ascending=False).head(10)
+        
+        fig_bar = px.bar(
+            df_ranking,
+            x='Promedio',
+            y='Nombre del Municipio',
+            orientation='h',
+            text_auto='.2f',
+            color='Promedio',
+            color_continuous_scale='Oranges'
         )
-        fig_line.add_hline(y=15, line_dash="dash", line_color="red", annotation_text="Límite OMS (15 µg/m³)")
-        fig_line.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=420)
-        st.plotly_chart(fig_line, use_container_width=True)
+        fig_bar.add_vline(x=15, line_dash="dash", line_color="red", annotation_text="Límite OMS")
+        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin={"r":0,"t":10,"l":0,"b":0}, height=380)
+        st.plotly_chart(fig_bar, use_container_width=True)
     else:
-        st.warning("No hay datos para mostrar en la tendencia.")
+        st.info("No hay suficientes datos para el ranking.")
 
-# ---------------------------------------------------------
-# RANKING INFERIOR (Top Municipios)
-# ---------------------------------------------------------
-st.markdown("---")
-st.subheader(f"🏆 Top Municipios más Afectados — {contaminante_sel}")
-if not df_filtered.empty:
-    df_ranking = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().reset_index()
-    df_ranking = df_ranking.sort_values(by='Promedio', ascending=False).head(8)
+with tab_exportar:
+    st.subheader("Descarga de Datos Procesados")
+    st.markdown("Puedes descargar la porción de datos filtrados actualmente en el panel en formato CSV para análisis adicionales.")
     
-    fig_bar = px.bar(
-        df_ranking,
-        x='Promedio',
-        y='Nombre del Municipio',
-        orientation='h',
-        text_auto='.2f',
-        color='Promedio',
-        color_continuous_scale='Oranges'
-    )
-    fig_bar.add_vline(x=15, line_dash="dash", line_color="red", annotation_text="Límite OMS")
-    fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin={"r":0,"t":10,"l":0,"b":0}, height=380)
-    st.plotly_chart(fig_bar, use_container_width=True)
-else:
-    st.info("No hay suficientes datos para el ranking.")
+    if not df_filtered.empty:
+        csv_data = df_filtered.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Descargar datos filtrados (CSV)",
+            data=csv_data,
+            file_name=f"calidad_aire_{contaminante_sel}_filtrado.csv",
+            mime="text/csv",
+        )
+        st.dataframe(df_filtered.head(100), use_container_width=True)
+        st.caption("Mostrando una vista previa de los primeros 100 registros filtrados.")
+    else:
+        st.warning("No hay datos disponibles para exportar con los filtros seleccionados.")

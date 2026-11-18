@@ -230,33 +230,42 @@ with tab_general:
 
     st.markdown("---")
 
-    # FILA 2 (ABAJO): MAPA GEOGRÁFICO ESTABLE DE ESTACIONES Y CIUDADES
-    titulo_mapa = f"Ubicación Espacial de Ciudades y Estaciones en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico Nacional de Estaciones — {contaminante_sel}"
+    # FILA 2 (ABAJO): MAPA GEOGRÁFICO REAL DE COLOMBIA / SUDAMÉRICA CON FRONTERAS
+    titulo_mapa = f"Mapa Geográfico de Estaciones y Ciudades en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico Nacional de Colombia — {contaminante_sel}"
     st.markdown(f"#### {titulo_mapa}")
 
     if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
         df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
         
-        # Mapa de coordenadas geográficas optimizado y robusto (sin errores de dependencias externas)
-        fig_map = px.scatter(
+        # MAPA GEOGRÁFICO NATIVO CON FRONTERAS DE PAÍSES (SUDAMÉRICA / COLOMBIA)
+        fig_map = px.scatter_geo(
             df_map_data,
-            x='Longitud',
-            y='Latitud',
+            lat='Latitud',
+            lon='Longitud',
             color='Promedio',
             size='Promedio',
             hover_name='Nombre del Municipio',
             hover_data=['Nombre del Departamento', 'Promedio'],
             color_continuous_scale='Viridis',
-            title=f"Dispersión Territorial de Ciudades y Estaciones ({contaminante_sel})"
+            scope='south america',
+            title=f"Dispersión Territorial sobre Mapa Geográfico ({contaminante_sel})"
         )
+        
+        # Configuración de proyección enfocada en Colombia con fronteras visibles
+        fig_map.update_geos(
+            center=dict(lat=4.5709, lon=-74.2973),
+            projection_scale=4.5,
+            showcountries=True, countrycolor="gray",
+            showland=True, landcolor="rgb(240, 240, 240)",
+            showocean=True, oceancolor="rgb(230, 242, 255)"
+        )
+        
         fig_map.update_layout(
             margin={"r":0,"t":30,"l":0,"b":0}, 
-            height=420,
-            xaxis_title="Longitud Geográfica (Oeste/Este)",
-            yaxis_title="Latitud Geográfica (Norte/Sur)"
+            height=450
         )
         st.plotly_chart(fig_map, use_container_width=True)
-        st.caption("Nota: Este mapa interactivo muestra los municipios y estaciones filtrados según el departamento seleccionado en el panel izquierdo.")
+        st.caption("Nota: Este mapa geográfico muestra los países de la región y ubica las ciudades y estaciones de forma interactiva según el departamento seleccionado.")
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 

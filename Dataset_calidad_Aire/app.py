@@ -56,7 +56,7 @@ col4.metric(label="EVENTOS CRÍTICOS (>15)", value=f"{excedencias_calc} registro
 st.markdown("---")
 
 # ---------------------------------------------------------
-# MAPA MAPBOX Y TENDENCIA ANUAL
+# MAPA GEOGRÁFICO (Estable vía Plotly Scatter) Y TENDENCIA
 # ---------------------------------------------------------
 col_mapa, col_grafico = st.columns([1, 1.5])
 
@@ -65,21 +65,23 @@ with col_mapa:
     if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
         df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
         
-        # Estilo integrado directamente en scatter_mapbox para evitar errores de atributo
-        fig_map = px.scatter_mapbox(
+        # Gráfico de dispersión geográfico robusto (sin errores de Mapbox)
+        fig_map = px.scatter(
             df_map_data,
-            lat='Latitud',
-            lon='Longitud',
-            hover_name='Nombre del Municipio',
-            size='Promedio',
+            x='Longitud',
+            y='Latitud',
             color='Promedio',
+            size='Promedio',
+            hover_name='Nombre del Municipio',
             color_continuous_scale='Viridis',
-            zoom=4.5,
-            center=dict(lat=4.5708, lon=-74.2973),
-            height=420,
-            mapbox_style="open-street-map"
+            title=f"Estaciones - {contaminante_sel}"
         )
-        fig_map.update_layout(margin={"r":0,"t":30,"l":0,"b":0})
+        fig_map.update_layout(
+            margin={"r":0,"t":30,"l":0,"b":0}, 
+            height=420,
+            xaxis_title="Longitud",
+            yaxis_title="Latitud"
+        )
         st.plotly_chart(fig_map, use_container_width=True)
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")

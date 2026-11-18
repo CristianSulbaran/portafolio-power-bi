@@ -169,52 +169,13 @@ if not df_filtered.empty:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# SECCIÓN DE PESTAÑAS (TABS) CORPORATIVAS AMPLIADAS
+# SECCIÓN DE PESTAÑAS (TABS) CORPORATIVAS
 # ---------------------------------------------------------
 tab_general, tab_comparativa, tab_exportar = st.tabs(["Analítica General y Mapas", "Comparativa Territorial", "Repositorio y Exportación"])
 
 with tab_general:
-    col_mapa, col_grafico = st.columns([1, 1.5])
-
-    with col_mapa:
-        titulo_mapa = f"Estaciones en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico de Colombia — {contaminante_sel}"
-        st.markdown(f"#### {titulo_mapa}")
-        
-        if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
-            df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
-            
-            # MAPA GEOGRÁFICO REAL DE COLOMBIA CON PLOTLY GEO
-            fig_map = px.scatter_geo(
-                df_map_data,
-                lat='Latitud',
-                lon='Longitud',
-                color='Promedio',
-                size='Promedio',
-                hover_name='Nombre del Municipio',
-                hover_data=['Nombre del Departamento', 'Promedio'],
-                color_continuous_scale='Viridis',
-                projection='natural earth',
-                title=f"Ubicación Espacial de Estaciones ({contaminante_sel})"
-            )
-            
-            # Centrar el mapa geográfico en Colombia (Lat: ~4.5, Lon: -74.0) con zoom adecuado
-            fig_map.update_geos(
-                center=dict(lat=4.5709, lon=-74.2973),
-                zoom=4.5,
-                showcountries=True, countrycolor="Black",
-                showcoastlines=True, coastlinecolor="Gray",
-                showland=True, landcolor="rgb(245, 245, 245)",
-                showocean=True, oceancolor="rgb(230, 242, 255)"
-            )
-            
-            fig_map.update_layout(
-                margin={"r":0,"t":30,"l":0,"b":0}, 
-                height=390
-            )
-            st.plotly_chart(fig_map, use_container_width=True)
-            st.caption("Nota: Mapa geográfico proyectado sobre Colombia. Los puntos reflejan las estaciones y su concentración.")
-        else:
-            st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
+    # FILA 1: Evolución Histórica y Ranking de Municipios (Lado a lado)
+    col_grafico, col_ranking = st.columns([1.2, 1])
 
     with col_grafico:
         st.markdown(f"#### Evolución Histórica Anual — {contaminante_sel}")
@@ -226,12 +187,12 @@ with tab_general:
                 y='Promedio', 
                 markers=True,
                 line_shape='spline',
-                title=f"Comportamiento Histórico Promedio de {contaminante_sel}"
+                title=f"Comportamiento Histórico Promedio"
             )
-            fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia (15.0)")
+            fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro (15.0)")
             fig_line.update_layout(
                 margin={"r":0,"t":30,"l":0,"b":0}, 
-                height=390,
+                height=380,
                 xaxis_title="Año de Monitoreo",
                 yaxis_title=f"Concentración Media ({contaminante_sel})"
             )
@@ -239,33 +200,66 @@ with tab_general:
         else:
             st.warning("No hay datos para mostrar en la tendencia.")
 
+    with col_ranking:
+        st.markdown(f"#### Top Zonas con Mayor Presión — {contaminante_sel}")
+        if not df_filtered.empty:
+            df_ranking = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().reset_index()
+            df_ranking = df_ranking.sort_values(by='Promedio', ascending=False).head(10)
+            
+            fig_bar = px.bar(
+                df_ranking,
+                x='Promedio',
+                y='Nombre del Municipio',
+                orientation='h',
+                text_auto='.2f',
+                color='Promedio',
+                color_continuous_scale='Oranges',
+                title=f"Ranking de Municipios Críticos"
+            )
+            fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
+            fig_bar.update_layout(
+                yaxis={'categoryorder':'total ascending'}, 
+                margin={"r":0,"t":30,"l":0,"b":0}, 
+                height=380,
+                xaxis_title=f"Concentración Promedio ({contaminante_sel})",
+                yaxis_title="Municipio"
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("No hay suficientes datos para el ranking.")
+
     st.markdown("---")
-    st.markdown(f"#### Ranking de Municipios con Mayor Concentración — {contaminante_sel}")
-    if not df_filtered.empty:
-        df_ranking = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().reset_index()
-        df_ranking = df_ranking.sort_values(by='Promedio', ascending=False).head(10)
+
+    # FILA 2 (ABAJO): MAPA GEOGRÁFICO DE COLOMBIA / CIUDADES
+    titulo_mapa = f"Ubicación Espacial de Estaciones y Ciudades en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico Nacional de Estaciones — {contaminante_sel}"
+    st.markdown(f"#### {titulo_mapa}")
+
+    if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
+        df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
         
-        fig_bar = px.bar(
-            df_ranking,
-            x='Promedio',
-            y='Nombre del Municipio',
-            orientation='h',
-            text_auto='.2f',
+        # Mapa interactivo Mapbox sin token (utiliza open-street-map gratuito y estable)
+        fig_map = px.scatter_mapbox(
+            df_map_data,
+            lat='Latitud',
+            lon='Longitud',
             color='Promedio',
-            color_continuous_scale='Oranges',
-            title=f"Top 10 Zonas con Mayor Presión de {contaminante_sel}"
+            size='Promedio',
+            hover_name='Nombre del Municipio',
+            hover_data=['Nombre del Departamento', 'Promedio'],
+            color_continuous_scale='Viridis',
+            mapbox_style="open-street-map",
+            zoom=5 if depto_sel == "Todos los departamentos" else 7,
+            center={"lat": 4.5709, "lon": -74.2973},
+            title=f"Dispersión Territorial de Ciudades y Estaciones"
         )
-        fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia")
-        fig_bar.update_layout(
-            yaxis={'categoryorder':'total ascending'}, 
+        fig_map.update_layout(
             margin={"r":0,"t":30,"l":0,"b":0}, 
-            height=380,
-            xaxis_title=f"Concentración Promedio Acumulada ({contaminante_sel})",
-            yaxis_title="Municipio"
+            height=450
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_map, use_container_width=True)
+        st.caption("Nota: El mapa muestra las ciudades del departamento seleccionado y reacciona de forma dinámica a los filtros.")
     else:
-        st.info("No hay suficientes datos para el ranking.")
+        st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 
 with tab_comparativa:
     st.markdown("#### Análisis de Comparativa Cruzada por Departamento")

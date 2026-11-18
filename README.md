@@ -1,2 +1,2 @@
-# Portafolio-Power-BI
+# Portafolio-Dashboard
 Portafolio de tableros de Power BI y proyectos de análisis de datos.

@@ -32,21 +32,13 @@ def load_data():
 df = load_data()
 
 # ---------------------------------------------------------
-# BARRA LATERAL / FILTROS CORPORATIVOS Y SELECCIÓN DE CIUDAD
+# BARRA LATERAL / FILTROS CORPORATIVOS LIMPIOS Y JERÁRQUICOS
 # ---------------------------------------------------------
 st.sidebar.markdown("### Panel de Control")
 st.sidebar.markdown("Parámetros gerenciales de segmentación")
 
 departamentos_disponibles = sorted(df['Nombre del Departamento'].dropna().unique())
 depto_sel = st.sidebar.selectbox("Departamento / Región", ["Todos los departamentos"] + departamentos_disponibles)
-
-# Filtro dinámico de Municipios/Ciudades según el departamento seleccionado
-if depto_sel != "Todos los departamentos":
-    municipios_disponibles = sorted(df[df['Nombre del Departamento'] == depto_sel]['Nombre del Municipio'].dropna().unique())
-else:
-    municipios_disponibles = sorted(df['Nombre del Municipio'].dropna().unique())
-
-municipio_sel = st.sidebar.selectbox("Ciudad / Municipio Específico", ["Todas las ciudades"] + municipios_disponibles)
 
 anos_disponibles = sorted(df['Año'].dropna().unique())
 val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
@@ -66,13 +58,10 @@ st.sidebar.markdown("---")
 variables_disponibles = sorted(df['Variable'].dropna().unique())
 contaminante_sel = st.sidebar.selectbox("Contaminante / Variable Evaluada", variables_disponibles)
 
-# Filtrado dinámico principal unificado
+# Filtrado dinámico principal (Limpio, sin interferencias de ciudades en el sidebar)
 df_filtered = df.copy()
 if depto_sel != "Todos los departamentos":
     df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == depto_sel]
-
-if municipio_sel != "Todas las ciudades":
-    df_filtered = df_filtered[df_filtered['Nombre del Municipio'] == municipio_sel]
 
 df_filtered = df_filtered[(df_filtered['Año'] >= ano_inicio) & (df_filtered['Año'] <= ano_fin)]
 df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
@@ -165,9 +154,7 @@ st.markdown("---")
 # ---------------------------------------------------------
 # NARRATIVA Y DIAGNÓSTICO EJECUTIVO AUTOMÁTICO
 # ---------------------------------------------------------
-ubicacion_texto = f"en **{municipio_sel} ({depto_sel})**" if municipio_sel != "Todas las ciudades" else f"en **{depto_sel}**"
-if depto_sel == "Todos los departamentos":
-    ubicacion_texto = "a nivel nacional"
+ubicacion_texto = f"en el departamento de **{depto_sel}**" if depto_sel != "Todos los departamentos" else "a nivel nacional (todos los departamentos)"
 
 if not df_filtered.empty:
     estado_alerta = "CRÍTICO" if promedio_general > limite_oms else "ESTABLE"
@@ -190,11 +177,13 @@ with tab_general:
     col_mapa, col_grafico = st.columns([1, 1.5])
 
     with col_mapa:
-        st.markdown("#### Mapa Interactivo de Estaciones")
+        titulo_mapa = f"Estaciones y Municipios — {depto_sel}" if depto_sel != "Todos los departamentos" else f"Distribución Nacional de Municipios — {contaminante_sel}"
+        st.markdown(f"#### {titulo_mapa}")
+        
         if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
             df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
             
-            # Mapa interactivo mejorado con Plotly Scatter
+            # Mapa inteligente que muestra las ciudades del departamento seleccionado o de todo el país
             fig_map = px.scatter(
                 df_map_data,
                 x='Longitud',
@@ -204,16 +193,16 @@ with tab_general:
                 hover_name='Nombre del Municipio',
                 hover_data=['Nombre del Departamento', 'Promedio'],
                 color_continuous_scale='Viridis',
-                title=f"Distribución Espacial — {contaminante_sel}"
+                title=f"Dispersión Geográfica de Ciudades ({contaminante_sel})"
             )
             fig_map.update_layout(
                 margin={"r":0,"t":30,"l":0,"b":0}, 
                 height=390, 
-                xaxis_title="Longitud Geográfica", 
-                yaxis_title="Latitud Geográfica"
+                xaxis_title="Coordenada Longitud", 
+                yaxis_title="Coordenada Latitud"
             )
             st.plotly_chart(fig_map, use_container_width=True)
-            st.caption("Nota: Haga clic y arrastre para hacer zoom en zonas específicas del mapa.")
+            st.caption("Nota: El mapa muestra automáticamente los municipios activos según el departamento seleccionado en el panel izquierdo.")
         else:
             st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 

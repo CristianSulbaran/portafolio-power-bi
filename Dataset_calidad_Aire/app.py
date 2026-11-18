@@ -65,7 +65,7 @@ with col_mapa:
     if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
         df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
         
-        # Usamos scatter_mapbox para un mapa interactivo moderno y libre de errores de proyección
+        # Estilo integrado directamente en scatter_mapbox para evitar errores de atributo
         fig_map = px.scatter_mapbox(
             df_map_data,
             lat='Latitud',
@@ -76,12 +76,10 @@ with col_mapa:
             color_continuous_scale='Viridis',
             zoom=4.5,
             center=dict(lat=4.5708, lon=-74.2973),
-            height=420
+            height=420,
+            mapbox_style="open-street-map"
         )
-        fig_map.update_layout(
-            mapbox_style="open-street-map",
-            margin={"r":0,"t":30,"l":0,"b":0}
-        )
+        fig_map.update_layout(margin={"r":0,"t":30,"l":0,"b":0})
         st.plotly_chart(fig_map, use_container_width=True)
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")

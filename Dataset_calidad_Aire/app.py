@@ -37,7 +37,10 @@ if not df_filtered.empty:
                        x='Año', y='Promedio', markers=True, title=f"Tendencia anual de {variable}")
     st.plotly_chart(fig_line, use_container_width=True)
 
+
 # Mapa de estaciones
 st.subheader("Ubicación de Estaciones")
 if not df_filtered.empty and 'Latitud' in df_filtered.columns:
-    st.map(df_filtered[['Latitud', 'Longitud']].drop_duplicates())
+    # Renombrar columnas para st.map()
+    df_map = df_filtered[['Latitud', 'Longitud']].rename(columns={'Latitud': 'lat', 'Longitud': 'lon'}).drop_duplicates()
+    st.map(df_map)

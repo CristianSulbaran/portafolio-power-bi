@@ -56,7 +56,7 @@ if ano_inicio > ano_fin:
 
 st.sidebar.markdown("---")
 variables_disponibles = sorted(df['Variable'].dropna().unique())
-contaminante_sel = st.sidebar.selectbox("Contaminante / Variable", variables_disponibles)
+contaminante_sel = st.sidebar.selectbox("Contaminante / Variable Evaluada", variables_disponibles)
 
 # Filtrado dinámico principal unificado
 df_filtered = df.copy()
@@ -102,17 +102,35 @@ else:
 
 # Fila 1 de KPIs
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(label=f"PROMEDIO {contaminante_sel}", value=f"{promedio_general:.2f}", delta=f"{brecha_oms:+.1f}% vs Límite OMS", delta_color="inverse")
-col2.metric(label="VOLATILIDAD (EST. DEV)", value=f"{volatilidad:.2f}", delta="Estabilidad estadística")
-col3.metric(label="MUNICIPIO CRÍTICO", value=f"{mun_critico}", delta=f"Pico: {val_critico:.1f}")
-col4.metric(label="MUESTRAS ANALIZADAS", value=f"{total_registros:,}".replace(",", "."))
+col1.metric(label=f"CONCENTRACIÓN MEDIA ({contaminante_sel})", value=f"{promedio_general:.2f}", delta=f"{brecha_oms:+.1f}% vs Límite OMS", delta_color="inverse")
+col2.metric(label="ESTABILIDAD (DESV. EST)", value=f"{volatilidad:.2f}", delta="Variabilidad de registros")
+col3.metric(label="MUNICIPIO CON MAYOR PRESIÓN", value=f"{mun_critico}", delta=f"Pico: {val_critico:.1f}")
+col4.metric(label="TOTAL DE MUESTRAS", value=f"{total_registros:,}".replace(",", "."))
 
 # Fila 2 de KPIs
 col5, col6, col7, col8 = st.columns(4)
-col5.metric(label="MÁXIMO ABSOLUTO", value=f"{max_absoluto:.2f}", delta="Pico histórico registrado")
-col6.metric(label="REGISTROS CRÍTICOS", value=f"{registros_criticos:,}".replace(",", "."), delta=f"Superan {limite_oms} µg/m³", delta_color="inverse")
-col7.metric(label="TENDENCIA PERÍODO", value=f"{variacion_interanual:+.1f}%", delta="Variación inicio vs fin", delta_color="inverse")
-col8.metric(label="MUNICIPIOS ACTIVOS", value=f"{municipios_cobertura}", delta="Cobertura territorial")
+col5.metric(label="PICO HISTÓRICO MÁXIMO", value=f"{max_absoluto:.2f}", delta="Valor extremo registrado")
+col6.metric(label="EVENTOS SOBRE EL LÍMITE", value=f"{registros_criticos:,}".replace(",", "."), delta=f"Superan {limite_oms} de referencia", delta_color="inverse")
+col7.metric(label="TENDENCIA DEL PERÍODO", value=f"{variacion_interanual:+.1f}%", delta="Variación inicio vs fin", delta_color="inverse")
+col8.metric(label="MUNICIPIOS MONITOREADOS", value=f"{municipios_cobertura}", delta="Cobertura territorial")
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# GUÍA RÁPIDA Y GLOSARIO PARA USUARIOS NO TÉCNICOS
+# ---------------------------------------------------------
+with st.expander("Guía de Lectura y Glosario Técnico (Haga clic para expandir)"):
+    st.markdown(
+        """
+        * **¿Qué es el Límite OMS?** Es el valor de referencia internacional establecido por la **Organización Mundial de la Salud** (fijado en 15.0 unidades para control general) para proteger la salud humana de efectos adversos a largo plazo. Superar este límite indica una alerta ambiental.
+        * **¿Qué miden las Variables / Contaminantes?**
+          * **CO (Monóxido de Carbono):** Gas incoloro e inodoro proveniente principalmente de la combustión de vehículos y transporte.
+          * **PM10 / PM2.5 (Material Particulado):** Pequeñas partículas sólidas o líquidas de polvo, cenizas, hollín o humo suspendidas en el aire que ingresan al sistema respiratorio.
+          * **NO2 / SO2 (Óxidos de Nitrógeno y Azufre):** Gases irritantes generados por actividades industriales y vehiculares que afectan las vías respiratorias.
+        * **Concentración Media:** El promedio de los niveles medidos en el período seleccionado. Entre más alto sea, mayor es la contaminación.
+        * **Estabilidad (Desvi. Estándar):** Mide qué tan estables o impredecibles son los cambios en los datos. Un valor alto indica fluctuaciones bruscas en la contaminación.
+        """
+    )
 
 st.markdown("---")
 
@@ -123,10 +141,10 @@ if not df_filtered.empty:
     estado_alerta = "CRÍTICO" if promedio_general > limite_oms else "ESTABLE"
     tendencia_texto = "a la alza" if variacion_interanual > 0 else "a la baja"
     st.info(
-        f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, la concentración de **{contaminante_sel}** "
-        f"en **{depto_sel}** muestra un promedio general de **{promedio_general:.2f}**, situándose en un estado **{estado_alerta}**. "
-        f"Se observa una variación interanual **{tendencia_texto}** de **{variacion_interanual:+.1f}%**, con **{municipios_cobertura}** municipios "
-        f"monitoreados y un total de **{registros_criticos}** eventos excediendo el estándar de la OMS."
+        f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, la concentración media de **{contaminante_sel}** "
+        f"en **{depto_sel}** se sitúa en **{promedio_general:.2f}**, un nivel clasificado como **{estado_alerta}** "
+        f"frente al umbral internacional de referencia (15.0). Se registra una tendencia **{tendencia_texto}** del **{variacion_interanual:+.1f}%**, "
+        f"evidenciando presión ambiental en **{municipios_cobertura}** municipios analizados."
     )
 
 st.markdown("---")
@@ -140,7 +158,7 @@ with tab_general:
     col_mapa, col_grafico = st.columns([1, 1.5])
 
     with col_mapa:
-        st.markdown("#### Distribución Geográfica de Estaciones")
+        st.markdown("#### Distribución Espacial de Estaciones")
         if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
             df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
             
@@ -152,14 +170,20 @@ with tab_general:
                 size='Promedio',
                 hover_name='Nombre del Municipio',
                 color_continuous_scale='Viridis',
+                title=f"Ubicación Geográfica y Niveles de {contaminante_sel}"
             )
-            fig_map.update_layout(margin={"r":0,"t":10,"l":0,"b":0}, height=390, xaxis_title="Longitud", yaxis_title="Latitud")
+            fig_map.update_layout(
+                margin={"r":0,"t":30,"l":0,"b":0}, 
+                height=390, 
+                xaxis_title="Coordenada Longitud (Oeste/Este)", 
+                yaxis_title="Coordenada Latitud (Norte/Sur)"
+            )
             st.plotly_chart(fig_map, use_container_width=True)
         else:
             st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 
     with col_grafico:
-        st.markdown(f"#### Tendencia Histórica Anual — {contaminante_sel}")
+        st.markdown(f"#### Evolución Histórica Anual — {contaminante_sel}")
         if not df_filtered.empty:
             df_tendencia = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
             fig_line = px.line(
@@ -167,10 +191,16 @@ with tab_general:
                 x='Año', 
                 y='Promedio', 
                 markers=True,
-                line_shape='spline'
+                line_shape='spline',
+                title=f"Comportamiento Histórico Promedio de {contaminante_sel}"
             )
-            fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS (15 µg/m³)")
-            fig_line.update_layout(margin={"r":0,"t":10,"l":0,"b":0}, height=390)
+            fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia (15.0)")
+            fig_line.update_layout(
+                margin={"r":0,"t":30,"l":0,"b":0}, 
+                height=390,
+                xaxis_title="Año de Monitoreo",
+                yaxis_title=f"Concentración Media ({contaminante_sel})"
+            )
             st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.warning("No hay datos para mostrar en la tendencia.")
@@ -188,17 +218,24 @@ with tab_general:
             orientation='h',
             text_auto='.2f',
             color='Promedio',
-            color_continuous_scale='Oranges'
+            color_continuous_scale='Oranges',
+            title=f"Top 10 Zonas con Mayor Presión de {contaminante_sel}"
         )
-        fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
-        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin={"r":0,"t":10,"l":0,"b":0}, height=380)
+        fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia")
+        fig_bar.update_layout(
+            yaxis={'categoryorder':'total ascending'}, 
+            margin={"r":0,"t":30,"l":0,"b":0}, 
+            height=380,
+            xaxis_title=f"Concentración Promedio Acumulada ({contaminante_sel})",
+            yaxis_title="Municipio"
+        )
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("No hay suficientes datos para el ranking.")
 
 with tab_comparativa:
     st.markdown("#### Análisis de Comparativa Cruzada por Departamento")
-    st.markdown("Seleccione dos departamentos diferentes para contrastar su comportamiento histórico bajo el contaminante seleccionado.")
+    st.markdown("Seleccione dos regiones o departamentos diferentes para contrastar su comportamiento histórico frente al estándar.")
     
     col_comp1, col_comp2 = st.columns(2)
     with col_comp1:
@@ -219,17 +256,22 @@ with tab_comparativa:
             color='Nombre del Departamento',
             markers=True,
             line_shape='spline',
-            title=f"Comparativa Histórica de {contaminante_sel}: {dep1} vs {dep2}"
+            title=f"Comparativa Cruzada de {contaminante_sel}: {dep1} vs {dep2}"
         )
-        fig_comp.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
-        fig_comp.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=420)
+        fig_comp.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia")
+        fig_comp.update_layout(
+            margin={"r":0,"t":30,"l":0,"b":0}, 
+            height=420,
+            xaxis_title="Año de Evaluación",
+            yaxis_title=f"Concentración Promedio ({contaminante_sel})"
+        )
         st.plotly_chart(fig_comp, use_container_width=True)
         
         st.markdown("#### Resumen Estadístico Comparativo")
         df_resumen_comp = df_comp_filtered.groupby('Nombre del Departamento').agg(
-            Promedio_General=('Promedio', 'mean'),
-            Maximo_Registrado=('Máximo' if 'Máximo' in df_comp_filtered.columns else 'Promedio', 'max'),
-            Total_Muestras=('Promedio', 'count')
+            Concentracion_Promedio=('Promedio', 'mean'),
+            Pico_Maximo=('Máximo' if 'Máximo' in df_comp_filtered.columns else 'Promedio', 'max'),
+            Muestras_Totales=('Promedio', 'count')
         ).reset_index()
         st.dataframe(df_resumen_comp, use_container_width=True)
     else:

@@ -11,7 +11,7 @@ st.markdown("Tablero interactivo basado en datos abiertos del IDEAM.")
 # Cargar datos limpios
 @st.cache_data
 def load_data():
-    return pd.read_csv('Dataset_calidad_aire/airquality_clean.csv')
+    return pd.read_csv('Dataset_calidad_Aire/airquality_clean.csv')
 
 df = load_data()
 

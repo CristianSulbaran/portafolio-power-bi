@@ -15,7 +15,7 @@ def normalizar_texto(texto):
     texto_sin_tildes = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
     return texto_sin_tildes.title()
 
-# Carga de datos apuntando al nuevo archivo limpio
+# Carga de datos apuntando al archivo limpio unificado
 @st.cache_data
 def load_data():
     df = pd.read_csv('Dataset_calidad_Aire/airquality_clean_II.csv')
@@ -117,18 +117,37 @@ col8.metric(label="MUNICIPIOS MONITOREADOS", value=f"{municipios_cobertura}", de
 st.markdown("---")
 
 # ---------------------------------------------------------
-# GUÍA RÁPIDA Y GLOSARIO PARA USUARIOS NO TÉCNICOS
+# GLOSARIO TÉCNICO DINÁMICO E INTEGRAL
 # ---------------------------------------------------------
-with st.expander("Guía de Lectura y Glosario Técnico (Haga clic para expandir)"):
+with st.expander("Guía de Lectura y Glosario Técnico Detallado (Haga clic para expandir)"):
     st.markdown(
         """
-        * **¿Qué es el Límite OMS?** Es el valor de referencia internacional establecido por la **Organización Mundial de la Salud** (fijado en 15.0 unidades para control general) para proteger la salud humana de efectos adversos a largo plazo. Superar este límite indica una alerta ambiental.
-        * **¿Qué miden las Variables / Contaminantes?**
-          * **CO (Monóxido de Carbono):** Gas incoloro e inodoro proveniente principalmente de la combustión de vehículos y transporte.
-          * **PM10 / PM2.5 (Material Particulado):** Pequeñas partículas sólidas o líquidas de polvo, cenizas, hollín o humo suspendidas en el aire que ingresan al sistema respiratorio.
-          * **NO2 / SO2 (Óxidos de Nitrógeno y Azufre):** Gases irritantes generados por actividades industriales y vehiculares que afectan las vías respiratorias.
-        * **Concentración Media:** El promedio de los niveles medidos en el período seleccionado. Entre más alto sea, mayor es la contaminación.
-        * **Estabilidad (Desvi. Estándar):** Mide qué tan estables o impredecibles son los cambios en los datos. Un valor alto indica fluctuaciones bruscas en la contaminación.
+        * **¿Qué es el Límite de Referencia OMS?** Es el valor internacional recomendado por la **Organización Mundial de la Salud** (fijado en 15.0 unidades para control general) para proteger la salud respiratoria a largo plazo. Superar este umbral representa una alerta ambiental.
+        * **Catálogo de Contaminantes y Variables del Sistema:**
+        """
+    )
+    
+    # Diccionario oficial de descripciones para cubrir cualquier variable del dataset
+    glosario_dict = {
+        "CO": "**Monóxido de Carbono (CO):** Gas incoloro e inodoro generado principalmente por la combustión incompleta en fuentes móviles (vehículos y transporte) e industriales.",
+        "PM10": "**Material Particulado PM10:** Pequeñas partículas sólidas o líquidas de polvo, cenizas, hollín o humo con diámetro menor a 10 micras que ingresan al sistema respiratorio alto.",
+        "PM2.5": "**Material Particulado PM2.5:** Partículas finas respirables con diámetro inferior a 2.5 micras; debido a su tamaño, penetran profundamente en los pulmones y el torrente sanguíneo.",
+        "NO2": "**Dióxido de Nitrógeno (NO2):** Gas altamente irritante proveniente de procesos de combustión a alta temperatura (tráfico vehicular e industrias de energía).",
+        "SO2": "**Dióxido de Azufre (SO2):** Gas incoloro pero con olor penetrante, originado principalmente por la quema de combustibles fósiles que contienen azufre (carbón y petróleo).",
+        "O3": "**Ozono Troposférico (O3):** Gas secundario formado cuando los contaminantes reaccionan con la luz solar; componente clave del smog fotoquímico en zonas urbanas.",
+        "NO": "**Monóxido de Nitrógeno (NO):** Gas precursor de la contaminación fotoquímica emitido por vehículos y procesos de combustión.",
+        "NOX": "**Óxidos de Nitrógeno (NOx):** Grupo de gases compuestos por nitrógeno y oxígeno, altamente reactivos y generados en procesos de combustión urbana e industrial."
+    }
+    
+    # Mostrar dinámicamente las descripciones de las variables que realmente tiene el dataset actual
+    for var in variables_disponibles:
+        descrip = glosario_dict.get(var, f"**{var}:** Variable ambiental registrada en el sistema de monitoreo de calidad del aire del IDEAM.")
+        st.markdown(f"- {descrip}")
+        
+    st.markdown(
+        """
+        * **Concentración Media:** Promedio aritmético de los niveles medidos en el período y región seleccionados.
+        * **Estabilidad (Desviación Estándar):** Mide la dispersión de los datos. Un valor elevado indica fluctuaciones extremas y repentinas en la contaminación.
         """
     )
 

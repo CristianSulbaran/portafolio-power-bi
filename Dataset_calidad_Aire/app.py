@@ -2,46 +2,59 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Calidad del Aire Colombia", layout="wide")
+# Configuración de página en modo ancho (Wide) para aprovechar toda la pantalla
+st.set_page_config(page_title="Panel de Calidad del Aire - Colombia", layout="wide")
 
-st.title("🇨🇴 Histórico de Calidad del Aire en Colombia (2011-2025)")
-st.markdown("Tablero interactivo basado en datos abiertos del IDEAM.")
-
+# Carga de datos optimizada
 @st.cache_data
 def load_data():
     return pd.read_csv('Dataset_calidad_Aire/airquality_clean.csv')
 
 df = load_data()
 
-# Filtros en Sidebar
-st.sidebar.header("Filtros")
-depto = st.sidebar.selectbox("Seleccione Departamento", sorted(df['Nombre del Departamento'].unique()))
-df_filtered = df[df['Nombre del Departamento'] == depto]
+# ---------------------------------------------------------
+# BARRA SUPERIOR / FILTROS PRINCIPALES
+# ---------------------------------------------------------
+st.markdown("### 📊 Panel de Calidad del Aire")
+st.markdown("Colombia • Datos históricos (2011–2025)")
 
-# Nuevo: Filtro de Municipio dependiente del departamento
-municipios = sorted(df_filtered['Nombre del Municipio'].unique())
-municipio = st.sidebar.selectbox("Seleccione Municipio", ["Todos"] + municipios)
-if municipio != "Todos":
-    df_filtered = df_filtered[df_filtered['Nombre del Municipio'] == municipio]
+st.sidebar.header("⚙️ FILTROS")
 
-variable = st.sidebar.selectbox("Seleccione Contaminante/Variable", sorted(df_filtered['Variable'].unique()))
-df_filtered = df_filtered[df_filtered['Variable'] == variable]
+# Filtro de Departamento / Ciudad
+ciudades_disponibles = sorted(df['Nombre del Departamento'].unique())
+ciudad_sel = st.sidebar.selectbox("Ciudad / Departamento", ["Todas las ciudades"] + ciudades_disponibles)
 
-# KPIs principales
-st.subheader(f"Métricas para {variable} en {depto} {f'({municipio})' if municipio != 'Todos' else ''}")
-col1, col2, col3 = st.columns(3)
-col1.metric("Promedio General", f"{df_filtered['Promedio'].mean():.2f}" if not df_filtered.empty else "0")
-col2.metric("Valor Máximo", f"{df_filtered['Máximo'].max():.2f}" if not df_filtered.empty else "0")
-col3.metric("Total Registros", len(df_filtered))
+# Filtro de Años
+anos_disponibles = sorted(df['Año'].unique())
+val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
+rango_anos = st.sidebar.slider("Período", val_min, val_max, (val_min, val_max))
 
-# Gráfico y Mapa
-st.subheader("Evolución Temporal Anual")
-if not df_filtered.empty:
-    fig_line = px.line(df_filtered.groupby('Año')['Promedio'].mean().reset_index(), 
-                       x='Año', y='Promedio', markers=True, title=f"Tendencia anual de {variable}")
-    st.plotly_chart(fig_line, use_container_width=True)
+# Filtro de Contaminante (Variable)
+variables_disponibles = sorted(df['Variable'].unique())
+contaminante_sel = st.sidebar.selectbox("Contaminante / Variable", variables_disponibles)
 
-st.subheader("Ubicación de Estaciones")
-if not df_filtered.empty and 'Latitud' in df_filtered.columns:
-    df_map = df_filtered[['Latitud', 'Longitud']].rename(columns={'Latitud': 'lat', 'Longitud': 'lon'}).drop_duplicates()
-    st.map(df_map)
+# Filtrado dinámico del DataFrame
+df_filtered = df.copy()
+if ciudad_sel != "Todas las ciudades":
+    df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == ciudad_sel]
+
+df_filtered = df_filtered[(df_filtered['Año'] >= rango_anos[0]) & (df_filtered['Año'] <= rango_anos[1])]
+df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
+
+# ---------------------------------------------------------
+# 4 TARJETAS DE KPIs SUPERIORES (Estilo Ejecutivo)
+# ---------------------------------------------------------
+col1, col2, col3, col4 = st.columns(4)
+
+promedio_general = df_filtered['Promedio'].mean() if not df_filtered.empty else 0
+max_registrado = df_filtered['Máximo'].max() if not df_filtered.empty else 0
+total_registros = len(df_filtered)
+excedencias_calc = len(df_filtered[df_filtered['Promedio'] > 50]) # Umbral referencial
+
+col1.metric(label=f"PROMEDIO {contaminante_sel}", value=f"{promedio_general:.2f}")
+col2.metric(label="VALOR MÁXIMO", value=f"{max_registrado:.2f}")
+col3.metric(label="REGISTROS TOTALES", value=f"{total_registros}")
+col4.metric(label="EVENTOS CRÍTICOS", value=f"{excedencias_calc} registros")
+
+st.markdown("---")
+st.info("💡 **Fase 1 lista:** Estructura superior y tarjetas ejecutivas configuradas. Haz los cambios en GitHub y avísame para agregar el mapa interactivo y los gráficos en la Fase 2.")

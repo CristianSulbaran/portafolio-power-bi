@@ -5,7 +5,7 @@ import plotly.express as px
 # Configuración de página en modo ancho (Wide)
 st.set_page_config(page_title="Panel de Calidad del Aire - Colombia", layout="wide")
 
-# Carga de datos con la ruta exacta de tu carpeta
+# Carga de datos con la ruta de tu carpeta
 @st.cache_data
 def load_data():
     return pd.read_csv('Dataset_calidad_Aire/airquality_clean.csv')
@@ -56,7 +56,7 @@ col4.metric(label="EVENTOS CRÍTICOS (>15)", value=f"{excedencias_calc} registro
 st.markdown("---")
 
 # ---------------------------------------------------------
-# MAPA GEOGRÁFICO Y TENDENCIA ANUAL
+# MAPA MAPBOX Y TENDENCIA ANUAL
 # ---------------------------------------------------------
 col_mapa, col_grafico = st.columns([1, 1.5])
 
@@ -64,7 +64,9 @@ with col_mapa:
     st.subheader("🌍 Distribución Geográfica")
     if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
         df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
-        fig_map = px.scatter_geo(
+        
+        # Usamos scatter_mapbox para un mapa interactivo moderno y libre de errores de proyección
+        fig_map = px.scatter_mapbox(
             df_map_data,
             lat='Latitud',
             lon='Longitud',
@@ -72,15 +74,14 @@ with col_mapa:
             size='Promedio',
             color='Promedio',
             color_continuous_scale='Viridis',
-            scope='south america',
-            title=f"Estaciones - {contaminante_sel}"
-        )
-        fig_map.update_geos(
-            center=dict(lat=4.5708, lon=-74.2973),
             zoom=4.5,
-            visible=True
+            center=dict(lat=4.5708, lon=-74.2973),
+            height=420
         )
-        fig_map.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, height=420)
+        fig_map.update_layout(
+            mapbox_style="open-street-map",
+            margin={"r":0,"t":30,"l":0,"b":0}
+        )
         st.plotly_chart(fig_map, use_container_width=True)
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")

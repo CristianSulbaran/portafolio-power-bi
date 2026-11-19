@@ -2,6 +2,13 @@
 
 Este proyecto presenta un tablero interactivo para consultar y analizar datos históricos de calidad del aire en Colombia (2011–2025), construido a partir del archivo limpio `airquality_clean_II.csv`. La idea es que cualquier persona pueda revisar cómo se comportan distintos contaminantes, qué municipios concentran mayores niveles, qué autoridad ambiental está detrás de cada departamento y descargar los datos que está viendo.
 
+Accede al dashboard interactivo desplegado en Streamlit: 
+<p align="center">
+  <a href="https://portafolio-power-bi-rnz4epzuwpjqgrnzd6rxsm.streamlit.app/">
+    <img src="https://img.shields.io/badge/Ver_Dashboard-Streamlit-red?style=for-the-badge&logo=streamlit" alt="Ver Dashboard">
+  </a>
+</p>
+
 ## Para que sirve este tablero
 
 Muchas veces los datos ambientales vienen en tablas extensas que cuestan leer a simple vista. Este tablero transforma esa información en indicadores rápidos, gráficos comparativos, un mapa y un glosario para entender qué mide cada variable. Además, contrasta los promedios registrados frente a la referencia de 15,0 µg/m³ el límite diario de la OMS para partículas finas (PM₂,₅) o anual para partículas respirables (PM₁₀), lo que permite identificar de inmediato si la calidad del aire representa un riesgo para la salud o se mantiene dentro de un rango seguro.

@@ -98,8 +98,9 @@ def calcular_zoom_y_centro(lat_series, lon_series, es_nacional=False):
     return centro, zoom
 
 def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
-    # Compatible con distintas versiones de Plotly en Streamlit Cloud
-    scatter_fn = getattr(px, "scatter_map", None) or px.scatter_mapbox
+    usa_scatter_map = hasattr(px, "scatter_map")
+    scatter_fn = px.scatter_map if usa_scatter_map else px.scatter_mapbox
+
     fig = scatter_fn(
         df_estaciones,
         lat='Latitud',
@@ -121,16 +122,30 @@ def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
             'Nombre del Departamento': 'Departamento',
             'Muestras': 'Registros'
         },
-        color_continuous_scale='Turbo',
-        zoom=zoom,
-        center=centro
+        color_continuous_scale='Turbo'
     )
-    style_kwargs = {"style": "carto-positron"} if scatter_fn.__name__ == "scatter_map" else {"mapbox_style": "carto-positron"}
-    fig.update_layout(
-        **style_kwargs,
-        margin={"r": 0, "t": 10, "l": 0, "b": 0},
-        height=440
-    )
+
+    if usa_scatter_map:
+        fig.update_layout(
+            map={
+                "style": "carto-positron",
+                "center": centro,
+                "zoom": zoom
+            },
+            margin={"r": 0, "t": 10, "l": 0, "b": 0},
+            height=440
+        )
+    else:
+        fig.update_layout(
+            mapbox={
+                "style": "carto-positron",
+                "center": centro,
+                "zoom": zoom
+            },
+            margin={"r": 0, "t": 10, "l": 0, "b": 0},
+            height=440
+        )
+
     return fig
 
 df = load_data()

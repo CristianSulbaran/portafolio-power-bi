@@ -1,22 +1,86 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
+"""
+Panel Ejecutivo de Calidad del Aire - Colombia
+=============================================
+Aplicación analítica desarrollada en Streamlit para la exploración, evaluación de
+riesgo ambiental y exportación de datos de calidad del aire (fuente IDEAM).
+
+Arquitectura y criterios de diseño:
+- Fuente de datos: `Dataset_calidad_Aire/airquality_clean_II.csv` (previamente
+  depurado y estandarizado en Google Colab).
+- Normalización defensiva: Se aplica normalización Unicode (NFKD) sin tildes y
+  estandarización de mayúsculas en tiempo de carga para evitar duplicados por
+  variaciones tipográficas.
+- Criterio de referencia: Umbral de 15.0 utilizado como línea base de alerta
+  comparativa en KPIs, narrativa automática y visualizaciones.
+- Compatibilidad geoespacial: La función `crear_mapa_estaciones` detecta si la
+  versión de Plotly instalada expone `px.scatter_map` o `px.scatter_mapbox` para
+  evitar fallos de compatibilidad en entornos de despliegue.
+"""
+
 import unicodedata
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-# Configuración de página en modo ancho (Wide)
-st.set_page_config(page_title="Panel Ejecutivo de Calidad del Aire - Colombia", layout="wide")
+# Configura el lienzo en modo ancho para aprovechar pantallas de escritorio y
+# dar espacio suficiente a las grillas de KPIs, gráficos y tablas laterales.
+st.set_page_config(
+    page_title="Panel Ejecutivo de Calidad del Aire - Colombia",
+    layout="wide",
+)
 
-# Función robusta para normalizar texto y evitar duplicados por tildes o mayúsculas
-def normalizar_texto(texto):
-    if pd.isna(texto):
-        return texto
-    texto_str = str(texto).strip()
-    nfkd_form = unicodedata.normalize('NFKD', texto_str)
-    texto_sin_tildes = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
-    return texto_sin_tildes.title()
+# Umbral de referencia central usado para calcular brechas, eventos críticos y
+# líneas de alerta en las series temporales y rankings.
+LIMITE_OMS = 15.0
 
-# Mapeo de Autoridad Ambiental por departamento (normalizado sin tildes)
+# Catálogo de definiciones técnicas para contaminantes frecuentes en redes de
+# monitoreo ambiental. Si el dataset incorpora una sigla no listada aquí, la
+# interfaz genera una descripción genérica de respaldo sin romper el glosario.
+GLOSARIO_CONTAMINANTES = {
+    "CO": (
+        "**Monóxido de Carbono (CO):** Gas incoloro e inodoro generado "
+        "principalmente por la combustión incompleta en fuentes móviles "
+        "(vehículos y transporte) e industriales."
+    ),
+    "PM10": (
+        "**Material Particulado PM10:** Pequeñas partículas sólidas o líquidas de "
+        "polvo, cenizas, hollín o humo con diámetro menor a 10 micras que "
+        "ingresan al sistema respiratorio alto."
+    ),
+    "PM2.5": (
+        "**Material Particulado PM2.5:** Partículas finas respirables con diámetro "
+        "inferior a 2.5 micras; debido a su tamaño, penetran profundamente en los "
+        "pulmones y el torrente sanguíneo."
+    ),
+    "NO2": (
+        "**Dióxido de Nitrógeno (NO2):** Gas altamente irritante proveniente de "
+        "procesos de combustión a alta temperatura (tráfico vehicular e "
+        "industrias de energía)."
+    ),
+    "SO2": (
+        "**Dióxido de Azufre (SO2):** Gas incoloro pero con olor penetrante, "
+        "originado principalmente por la quema de combustibles fósiles que "
+        "contienen azufre (carbón y petróleo)."
+    ),
+    "O3": (
+        "**Ozono Troposférico (O3):** Gas secundario formado cuando los "
+        "contaminantes reaccionan con la luz solar; componente clave del smog "
+        "fotoquímico en zonas urbanas."
+    ),
+    "NO": (
+        "**Monóxido de Nitrógeno (NO):** Gas precursor de la contaminación "
+        "fotoquímica emitido por vehículos y procesos de combustión."
+    ),
+    "NOX": (
+        "**Óxidos de Nitrógeno (NOx):** Grupo de gases compuestos por nitrógeno y "
+        "oxígeno, altamente reactivos y generados en procesos de combustión "
+        "urbana e industrial."
+    ),
+}
+
+# Diccionario indexado por nombre de departamento normalizado (sin tildes, en
+# formato título) para contextualizar la gobernanza ambiental territorial.
 AUTORIDADES_AMBIENTALES = {
     "Amazonas": "Corpoamazonia",
     "Antioquia": "Corantioquia / Cornare / Área Metropolitana del Valle de Aburrá",
@@ -53,38 +117,86 @@ AUTORIDADES_AMBIENTALES = {
     "Vichada": "Corporinoquia",
 }
 
+
+def normalizar_texto(texto):
+    """Estandariza cadenas eliminando acentos diacríticos y aplicando formato título.
+
+    Se usa NFKD para descomponer caracteres acentuados en carácter base + marca
+    combinante (`unicodedata.combining`), evitando que "Atlántico" y "Atlantico"
+    se traten como categorías distintas en agrupaciones y filtros.
+    """
+    if pd.isna(texto):
+        return texto
+    texto_str = str(texto).strip()
+    nfkd_form = unicodedata.normalize("NFKD", texto_str)
+    texto_sin_tildes = "".join(
+        c for c in nfkd_form if not unicodedata.combining(c)
+    )
+    return texto_sin_tildes.title()
+
+
 def obtener_autoridad_ambiental(depto):
+    """Retorna la autoridad ambiental asociada a un departamento normalizado."""
     if pd.isna(depto):
         return "Autoridad Ambiental Regional / IDEAM"
-    return AUTORIDADES_AMBIENTALES.get(str(depto).strip(), "Corporación Autónoma Regional / IDEAM")
+    return AUTORIDADES_AMBIENTALES.get(
+        str(depto).strip(),
+        "Corporación Autónoma Regional / IDEAM",
+    )
 
-# Carga de datos optimizada desde el dataset limpio
+
 @st.cache_data
 def load_data():
-    df = pd.read_csv('Dataset_calidad_Aire/airquality_clean_II.csv')
-    
-    if 'Nombre del Departamento' in df.columns:
-        df['Nombre del Departamento'] = df['Nombre del Departamento'].apply(normalizar_texto)
-        df['Autoridad Ambiental'] = df['Nombre del Departamento'].apply(obtener_autoridad_ambiental)
-    if 'Nombre del Municipio' in df.columns:
-        df['Nombre del Municipio'] = df['Nombre del Municipio'].apply(normalizar_texto)
-    if 'Variable' in df.columns:
-        df['Variable'] = df['Variable'].apply(lambda x: str(x).strip().upper())
-        
+    """Carga y normaliza el dataset base con caché de sesión en Streamlit.
+
+    El decorador `@st.cache_data` evita releer y reprocesar el CSV en cada
+    interacción del usuario con los selectores o pestañas.
+    """
+    df = pd.read_csv("Dataset_calidad_Aire/airquality_clean_II.csv")
+
+    if "Nombre del Departamento" in df.columns:
+        df["Nombre del Departamento"] = df["Nombre del Departamento"].apply(
+            normalizar_texto
+        )
+        df["Autoridad Ambiental"] = df["Nombre del Departamento"].apply(
+            obtener_autoridad_ambiental
+        )
+
+    if "Nombre del Municipio" in df.columns:
+        df["Nombre del Municipio"] = df["Nombre del Municipio"].apply(
+            normalizar_texto
+        )
+
+    # Las siglas de contaminantes se normalizan en mayúsculas para hacer
+    # coincidencia exacta con las claves del glosario y etiquetas de KPIs.
+    if "Variable" in df.columns:
+        df["Variable"] = df["Variable"].apply(lambda x: str(x).strip().upper())
+
     return df
 
+
 def calcular_zoom_y_centro(lat_series, lon_series, es_nacional=False):
-    lat_clean = pd.to_numeric(lat_series, errors='coerce').dropna()
-    lon_clean = pd.to_numeric(lon_series, errors='coerce').dropna()
-    
+    """Calcula coordenadas centrales y nivel de zoom adaptativo para el mapa.
+
+    Cuando se analiza un departamento específico, el zoom se ajusta según la
+    amplitud geográfica (`span`) de los puntos válidos para evitar vistas
+    demasiado lejanas o excesivamente cerradas. Si no hay coordenadas válidas,
+    regresa a un punto central de referencia en Colombia.
+    """
+    lat_clean = pd.to_numeric(lat_series, errors="coerce").dropna()
+    lon_clean = pd.to_numeric(lon_series, errors="coerce").dropna()
+
     if lat_clean.empty or lon_clean.empty:
         return {"lat": 4.5709, "lon": -74.2973}, 5.0
-    
+
     centro = {"lat": float(lat_clean.mean()), "lon": float(lon_clean.mean())}
     if es_nacional:
         return {"lat": 4.5709, "lon": -74.2973}, 5.0
-    
-    span = max(float(lat_clean.max() - lat_clean.min()), float(lon_clean.max() - lon_clean.min()))
+
+    span = max(
+        float(lat_clean.max() - lat_clean.min()),
+        float(lon_clean.max() - lon_clean.min()),
+    )
     if span < 0.15:
         zoom = 10.5
     elif span < 0.5:
@@ -95,71 +207,78 @@ def calcular_zoom_y_centro(lat_series, lon_series, es_nacional=False):
         zoom = 6.5
     else:
         zoom = 5.5
+
     return centro, zoom
 
+
 def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
+    """Construye el mapa de burbujas georreferenciadas de estaciones/municipios.
+
+    Soporta tanto `px.scatter_map` (versiones recientes de Plotly, que configuran
+    el estilo y cámara bajo la clave `map`) como `px.scatter_mapbox` (versiones
+    anteriores, bajo `mapbox`).
+    """
     usa_scatter_map = hasattr(px, "scatter_map")
     scatter_fn = px.scatter_map if usa_scatter_map else px.scatter_mapbox
 
     fig = scatter_fn(
         df_estaciones,
-        lat='Latitud',
-        lon='Longitud',
-        color='Promedio_Estacion',
-        size='Tamano_Burbuja',
-        hover_name='Nombre del Municipio',
+        lat="Latitud",
+        lon="Longitud",
+        color="Promedio_Estacion",
+        size="Tamano_Burbuja",
+        hover_name="Nombre del Municipio",
         hover_data={
-            'Nombre del Departamento': True,
-            'Autoridad Ambiental': True,
-            'Promedio_Estacion': ':.2f',
-            'Muestras': True,
-            'Latitud': ':.4f',
-            'Longitud': ':.4f',
-            'Tamano_Burbuja': False
+            "Nombre del Departamento": True,
+            "Autoridad Ambiental": True,
+            "Promedio_Estacion": ":.2f",
+            "Muestras": True,
+            "Latitud": ":.4f",
+            "Longitud": ":.4f",
+            "Tamano_Burbuja": False,
         },
         labels={
-            'Promedio_Estacion': f'Media {contaminante}',
-            'Nombre del Departamento': 'Departamento',
-            'Muestras': 'Registros'
+            "Promedio_Estacion": f"Media {contaminante}",
+            "Nombre del Departamento": "Departamento",
+            "Muestras": "Registros",
         },
-        color_continuous_scale='Turbo'
+        color_continuous_scale="Turbo",
     )
 
-    if usa_scatter_map:
-        fig.update_layout(
-            map={
+    layout_geo_key = "map" if usa_scatter_map else "mapbox"
+    fig.update_layout(
+        **{
+            layout_geo_key: {
                 "style": "carto-positron",
                 "center": centro,
-                "zoom": zoom
-            },
-            margin={"r": 0, "t": 10, "l": 0, "b": 0},
-            height=440
-        )
-    else:
-        fig.update_layout(
-            mapbox={
-                "style": "carto-positron",
-                "center": centro,
-                "zoom": zoom
-            },
-            margin={"r": 0, "t": 10, "l": 0, "b": 0},
-            height=440
-        )
+                "zoom": zoom,
+            }
+        },
+        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+        height=440,
+    )
 
     return fig
 
+
+# Carga inicial del dataset normalizado.
 df = load_data()
 
 # ---------------------------------------------------------
 # BARRA LATERAL / FILTROS CORPORATIVOS
 # ---------------------------------------------------------
+# Define el alcance territorial, temporal y de contaminante que alimenta de
+# forma sincronizada los KPIs, la narrativa ejecutiva y las pestañas analíticas.
 st.sidebar.markdown("### Panel de Control")
 st.sidebar.markdown("Parámetros gerenciales de segmentación")
 
-departamentos_disponibles = sorted(df['Nombre del Departamento'].dropna().unique())
-depto_sel = st.sidebar.selectbox("Departamento / Región", ["Todos los departamentos"] + departamentos_disponibles)
+departamentos_disponibles = sorted(df["Nombre del Departamento"].dropna().unique())
+depto_sel = st.sidebar.selectbox(
+    "Departamento / Región",
+    ["Todos los departamentos"] + departamentos_disponibles,
+)
 
-anos_disponibles = sorted(df['Año'].dropna().unique())
+anos_disponibles = sorted(df["Año"].dropna().unique())
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Rango Temporal de Análisis")
@@ -167,22 +286,34 @@ col_y1, col_y2 = st.sidebar.columns(2)
 with col_y1:
     ano_inicio = st.selectbox("Año Inicio", anos_disponibles, index=0)
 with col_y2:
-    ano_fin = st.selectbox("Año Fin", anos_disponibles, index=len(anos_disponibles) - 1)
+    ano_fin = st.selectbox(
+        "Año Fin",
+        anos_disponibles,
+        index=len(anos_disponibles) - 1,
+    )
 
+# Intercambia los límites si el usuario elige un año inicial mayor al final,
+# evitando filtros vacíos accidentales por orden de selección.
 if ano_inicio > ano_fin:
     ano_inicio, ano_fin = ano_fin, ano_inicio
 
 st.sidebar.markdown("---")
-variables_disponibles = sorted(df['Variable'].dropna().unique())
-contaminante_sel = st.sidebar.selectbox("Contaminante / Variable Evaluada", variables_disponibles)
+variables_disponibles = sorted(df["Variable"].dropna().unique())
+contaminante_sel = st.sidebar.selectbox(
+    "Contaminante / Variable Evaluada",
+    variables_disponibles,
+)
 
-# Filtrado dinámico principal
+# Aplica el conjunto de filtros activos sobre una copia del DataFrame original
+# para preservar intacta la base completa en comparativas cruzadas.
 df_filtered = df.copy()
 if depto_sel != "Todos los departamentos":
-    df_filtered = df_filtered[df_filtered['Nombre del Departamento'] == depto_sel]
+    df_filtered = df_filtered[df_filtered["Nombre del Departamento"] == depto_sel]
 
-df_filtered = df_filtered[(df_filtered['Año'] >= ano_inicio) & (df_filtered['Año'] <= ano_fin)]
-df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
+df_filtered = df_filtered[
+    (df_filtered["Año"] >= ano_inicio) & (df_filtered["Año"] <= ano_fin)
+]
+df_filtered = df_filtered[df_filtered["Variable"] == contaminante_sel]
 
 # ---------------------------------------------------------
 # ENCABEZADO Y BLOQUE DE KPIs EMPRESARIALES (DOBLE FILA)
@@ -190,79 +321,119 @@ df_filtered = df_filtered[df_filtered['Variable'] == contaminante_sel]
 st.markdown("### Panel Ejecutivo de Calidad del Aire")
 st.markdown("Sistema de Monitoreo Analítico y Evaluación de Riesgo Ambiental • IDEAM")
 
-promedio_general = df_filtered['Promedio'].mean() if not df_filtered.empty else 0
+promedio_general = df_filtered["Promedio"].mean() if not df_filtered.empty else 0.0
 total_registros = len(df_filtered)
-limite_oms = 15.0
-brecha_oms = ((promedio_general - limite_oms) / limite_oms) * 100 if limite_oms > 0 else 0
-volatilidad = df_filtered['Promedio'].std() if not df_filtered.empty else 0
+brecha_oms = ((promedio_general - LIMITE_OMS) / LIMITE_OMS) * 100 if LIMITE_OMS > 0 else 0.0
+volatilidad = df_filtered["Promedio"].std() if not df_filtered.empty else 0.0
 
 if not df_filtered.empty:
-    medias_mun = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean()
+    medias_mun = df_filtered.groupby("Nombre del Municipio")["Promedio"].mean()
     mun_critico = medias_mun.idxmax()
     val_critico = medias_mun.max()
-    max_absoluto = df_filtered['Máximo'].max() if 'Máximo' in df_filtered.columns else df_filtered['Promedio'].max()
-    registros_criticos = len(df_filtered[df_filtered['Promedio'] > limite_oms])
-    municipios_cobertura = df_filtered['Nombre del Municipio'].nunique()
-    
-    df_anos_prom = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
+    # Usa la columna 'Máximo' si existe en el CSV; de lo contrario recurre a 'Promedio'.
+    max_absoluto = (
+        df_filtered["Máximo"].max()
+        if "Máximo" in df_filtered.columns
+        else df_filtered["Promedio"].max()
+    )
+    registros_criticos = int((df_filtered["Promedio"] > LIMITE_OMS).sum())
+    municipios_cobertura = df_filtered["Nombre del Municipio"].nunique()
+
+    # Calcula la variación porcentual entre el primer y último año presente en
+    # la selección actual (no necesariamente los extremos del selector si faltan datos).
+    df_anos_prom = df_filtered.groupby("Año")["Promedio"].mean().reset_index()
     if len(df_anos_prom) >= 2:
-        val_inicial = df_anos_prom.iloc[0]['Promedio']
-        val_final = df_anos_prom.iloc[-1]['Promedio']
-        variacion_interanual = ((val_final - val_inicial) / val_inicial) * 100 if val_inicial > 0 else 0
+        val_inicial = df_anos_prom.iloc[0]["Promedio"]
+        val_final = df_anos_prom.iloc[-1]["Promedio"]
+        variacion_interanual = (
+            ((val_final - val_inicial) / val_inicial) * 100
+            if val_inicial > 0
+            else 0.0
+        )
     else:
         variacion_interanual = 0.0
 else:
     mun_critico = "N/A"
-    val_critico = 0
-    max_absoluto = 0
+    val_critico = 0.0
+    max_absoluto = 0.0
     registros_criticos = 0
     municipios_cobertura = 0
     variacion_interanual = 0.0
 
+# `delta_color="inverse"` invierte la semántica visual de Streamlit para que un
+# incremento en contaminación o superación del límite se resalte como adverso.
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(label=f"CONCENTRACIÓN MEDIA ({contaminante_sel})", value=f"{promedio_general:.2f}", delta=f"{brecha_oms:+.1f}% vs Límite OMS", delta_color="inverse")
-col2.metric(label="ESTABILIDAD (DESV. EST)", value=f"{volatilidad:.2f}", delta="Variabilidad de registros")
-col3.metric(label="MUNICIPIO CON MAYOR PRESIÓN", value=f"{mun_critico}", delta=f"Pico: {val_critico:.1f}")
-col4.metric(label="TOTAL DE MUESTRAS", value=f"{total_registros:,}".replace(",", "."))
+col1.metric(
+    label=f"CONCENTRACIÓN MEDIA ({contaminante_sel})",
+    value=f"{promedio_general:.2f}",
+    delta=f"{brecha_oms:+.1f}% vs Límite OMS",
+    delta_color="inverse",
+)
+col2.metric(
+    label="ESTABILIDAD (DESV. EST)",
+    value=f"{volatilidad:.2f}",
+    delta="Variabilidad de registros",
+)
+col3.metric(
+    label="MUNICIPIO CON MAYOR PRESIÓN",
+    value=f"{mun_critico}",
+    delta=f"Pico: {val_critico:.1f}",
+)
+col4.metric(
+    label="TOTAL DE MUESTRAS",
+    value=f"{total_registros:,}".replace(",", "."),
+)
 
 col5, col6, col7, col8 = st.columns(4)
-col5.metric(label="PICO HISTÓRICO MÁXIMO", value=f"{max_absoluto:.2f}", delta="Valor extremo registrado")
-col6.metric(label="EVENTOS SOBRE EL LÍMITE", value=f"{registros_criticos:,}".replace(",", "."), delta=f"Superan {limite_oms} de referencia", delta_color="inverse")
-col7.metric(label="TENDENCIA DEL PERÍODO", value=f"{variacion_interanual:+.1f}%", delta="Variación inicio vs fin", delta_color="inverse")
-col8.metric(label="MUNICIPIOS MONITOREADOS", value=f"{municipios_cobertura}", delta="Cobertura territorial")
+col5.metric(
+    label="PICO HISTÓRICO MÁXIMO",
+    value=f"{max_absoluto:.2f}",
+    delta="Valor extremo registrado",
+)
+col6.metric(
+    label="EVENTOS SOBRE EL LÍMITE",
+    value=f"{registros_criticos:,}".replace(",", "."),
+    delta=f"Superan {LIMITE_OMS} de referencia",
+    delta_color="inverse",
+)
+col7.metric(
+    label="TENDENCIA DEL PERÍODO",
+    value=f"{variacion_interanual:+.1f}%",
+    delta="Variación inicio vs fin",
+    delta_color="inverse",
+)
+col8.metric(
+    label="MUNICIPIOS MONITOREADOS",
+    value=f"{municipios_cobertura}",
+    delta="Cobertura territorial",
+)
 
 st.markdown("---")
 
 # ---------------------------------------------------------
 # GLOSARIO TÉCNICO DINÁMICO E INTEGRAL
 # ---------------------------------------------------------
+# Construye el glosario en función de las variables detectadas en el dataset
+# para garantizar que lectores no técnicos entiendan cada sigla disponible.
 with st.expander("Guía de Lectura y Glosario Técnico Detallado (Haga clic para expandir)"):
     st.markdown(
         """
-        * **¿Qué es el Límite de Referencia OMS?** Es el valor internacional recomendado por la **Organización Mundial de la Salud** (fijado en 15.0 unidades para control general) para proteger la salud respiratoria a largo plazo. Superar este umbral representa una alerta ambiental.
-        * **Catálogo de Contaminantes y Variables del Sistema:**
+- **¿Qué es el Límite de Referencia OMS?** Es el valor internacional recomendado por la **Organización Mundial de la Salud** (fijado en 15.0 unidades para control general) para proteger la salud respiratoria a largo plazo. Superar este umbral representa una alerta ambiental.
+- **Catálogo de Contaminantes y Variables del Sistema:**
         """
     )
-    
-    glosario_dict = {
-        "CO": "**Monóxido de Carbono (CO):** Gas incoloro e inodoro generado principalmente por la combustión incompleta en fuentes móviles (vehículos y transporte) e industriales.",
-        "PM10": "**Material Particulado PM10:** Pequeñas partículas sólidas o líquidas de polvo, cenizas, hollín o humo con diámetro menor a 10 micras que ingresan al sistema respiratorio alto.",
-        "PM2.5": "**Material Particulado PM2.5:** Partículas finas respirables con diámetro inferior a 2.5 micras; debido a su tamaño, penetran profundamente en los pulmones y el torrente sanguíneo.",
-        "NO2": "**Dióxido de Nitrógeno (NO2):** Gas altamente irritante proveniente de procesos de combustión a alta temperatura (tráfico vehicular e industrias de energía).",
-        "SO2": "**Dióxido de Azufre (SO2):** Gas incoloro pero con olor penetrante, originado principalmente por la quema de combustibles fósiles que contienen azufre (carbón y petróleo).",
-        "O3": "**Ozono Troposférico (O3):** Gas secundario formado cuando los contaminantes reaccionan con la luz solar; componente clave del smog fotoquímico en zonas urbanas.",
-        "NO": "**Monóxido de Nitrógeno (NO):** Gas precursor de la contaminación fotoquímica emitido por vehículos y procesos de combustión.",
-        "NOX": "**Óxidos de Nitrógeno (NOx):** Grupo de gases compuestos por nitrógeno y oxígeno, altamente reactivos y generados en procesos de combustión urbana e industrial."
-    }
-    
+
     for var in variables_disponibles:
-        descrip = glosario_dict.get(var, f"**{var}:** Variable ambiental registrada en el sistema de monitoreo de calidad del aire del IDEAM.")
+        descrip = GLOSARIO_CONTAMINANTES.get(
+            var,
+            f"**{var}:** Variable ambiental registrada en el sistema de monitoreo de calidad del aire del IDEAM.",
+        )
         st.markdown(f"- {descrip}")
-        
+
     st.markdown(
         """
-        * **Concentración Media:** Promedio aritmético de los niveles medidos en el período y región seleccionados.
-        * **Estabilidad (Desviación Estándar):** Mide la dispersión de los datos. Un valor elevado indica fluctuaciones extremas y repentinas en la contaminación.
+- **Concentración Media:** Promedio aritmético de los niveles medidos en el período y región seleccionados.
+- **Estabilidad (Desviación Estándar):** Mide la dispersión de los datos. Un valor elevado indica fluctuaciones extremas y repentinas en la contaminación.
         """
     )
 
@@ -271,16 +442,23 @@ st.markdown("---")
 # ---------------------------------------------------------
 # NARRATIVA Y DIAGNÓSTICO EJECUTIVO AUTOMÁTICO
 # ---------------------------------------------------------
-ubicacion_texto = f"en el departamento de **{depto_sel}**" if depto_sel != "Todos los departamentos" else "a nivel nacional (todos los departamentos)"
+ubicacion_texto = (
+    f"en el departamento de **{depto_sel}**"
+    if depto_sel != "Todos los departamentos"
+    else "a nivel nacional (todos los departamentos)"
+)
 
 if not df_filtered.empty:
-    estado_alerta = "CRÍTICO" if promedio_general > limite_oms else "ESTABLE"
+    estado_alerta = "CRÍTICO" if promedio_general > LIMITE_OMS else "ESTABLE"
     tendencia_texto = "a la alza" if variacion_interanual > 0 else "a la baja"
     st.info(
-        f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, la concentración media de **{contaminante_sel}** "
-        f"{ubicacion_texto} se sitúa en **{promedio_general:.2f}**, un nivel clasificado como **{estado_alerta}** "
-        f"frente al umbral internacional de referencia (15.0). Se registra una tendencia **{tendencia_texto}** del **{variacion_interanual:+.1f}%**, "
-        f"evidenciando presión ambiental en **{municipios_cobertura}** municipios analizados."
+        f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, "
+        f"la concentración media de **{contaminante_sel}** {ubicacion_texto} se "
+        f"sitúa en **{promedio_general:.2f}**, un nivel clasificado como "
+        f"**{estado_alerta}** frente al umbral internacional de referencia "
+        f"({LIMITE_OMS}). Se registra una tendencia **{tendencia_texto}** del "
+        f"**{variacion_interanual:+.1f}%**, evidenciando presión ambiental en "
+        f"**{municipios_cobertura}** municipios analizados."
     )
 
 st.markdown("---")
@@ -288,30 +466,40 @@ st.markdown("---")
 # ---------------------------------------------------------
 # SECCIÓN DE PESTAÑAS (TABS) CORPORATIVAS
 # ---------------------------------------------------------
-tab_general, tab_comparativa, tab_exportar = st.tabs(["Analítica General y Mapas", "Comparativa Territorial", "Repositorio y Exportación"])
+tab_general, tab_comparativa, tab_exportar = st.tabs(
+    ["Analítica General y Mapas", "Comparativa Territorial", "Repositorio y Exportación"]
+)
 
 with tab_general:
-    # FILA 1: Evolución Histórica y Ranking de Municipios
+    # Fila superior: evolución temporal agregada por año y ranking de los 10
+    # municipios con mayor concentración promedio para el filtro activo.
     col_grafico, col_ranking = st.columns([1.2, 1])
 
     with col_grafico:
         st.markdown(f"#### Evolución Histórica Anual — {contaminante_sel}")
         if not df_filtered.empty:
-            df_tendencia = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
-            fig_line = px.line(
-                df_tendencia, 
-                x='Año', 
-                y='Promedio', 
-                markers=True,
-                line_shape='spline',
-                title=f"Comportamiento Histórico Promedio de {contaminante_sel}"
+            df_tendencia = (
+                df_filtered.groupby("Año")["Promedio"].mean().reset_index()
             )
-            fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro (15.0)")
+            fig_line = px.line(
+                df_tendencia,
+                x="Año",
+                y="Promedio",
+                markers=True,
+                line_shape="spline",
+                title=f"Comportamiento Histórico Promedio de {contaminante_sel}",
+            )
+            fig_line.add_hline(
+                y=LIMITE_OMS,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Límite Seguro ({LIMITE_OMS})",
+            )
             fig_line.update_layout(
-                margin={"r": 0, "t": 30, "l": 0, "b": 0}, 
+                margin={"r": 0, "t": 30, "l": 0, "b": 0},
                 height=380,
                 xaxis_title="Año de Monitoreo",
-                yaxis_title=f"Concentración Media ({contaminante_sel})"
+                yaxis_title=f"Concentración Media ({contaminante_sel})",
             )
             st.plotly_chart(fig_line, use_container_width=True)
         else:
@@ -320,26 +508,37 @@ with tab_general:
     with col_ranking:
         st.markdown(f"#### Top Zonas con Mayor Presión — {contaminante_sel}")
         if not df_filtered.empty:
-            df_ranking = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().reset_index()
-            df_ranking = df_ranking.sort_values(by='Promedio', ascending=False).head(10)
-            
+            df_ranking = (
+                df_filtered.groupby("Nombre del Municipio")["Promedio"]
+                .mean()
+                .reset_index()
+            )
+            df_ranking = df_ranking.sort_values(
+                by="Promedio", ascending=False
+            ).head(10)
+
             fig_bar = px.bar(
                 df_ranking,
-                x='Promedio',
-                y='Nombre del Municipio',
-                orientation='h',
-                text_auto='.2f',
-                color='Promedio',
-                color_continuous_scale='Oranges',
-                title=f"Ranking de Municipios Críticos ({contaminante_sel})"
+                x="Promedio",
+                y="Nombre del Municipio",
+                orientation="h",
+                text_auto=".2f",
+                color="Promedio",
+                color_continuous_scale="Oranges",
+                title=f"Ranking de Municipios Críticos ({contaminante_sel})",
             )
-            fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
+            fig_bar.add_vline(
+                x=LIMITE_OMS,
+                line_dash="dash",
+                line_color="red",
+                annotation_text="Límite OMS",
+            )
             fig_bar.update_layout(
-                yaxis={'categoryorder': 'total ascending'}, 
-                margin={"r": 0, "t": 30, "l": 0, "b": 0}, 
+                yaxis={"categoryorder": "total ascending"},
+                margin={"r": 0, "t": 30, "l": 0, "b": 0},
                 height=380,
                 xaxis_title=f"Concentración Promedio ({contaminante_sel})",
-                yaxis_title="Municipio"
+                yaxis_title="Municipio",
             )
             st.plotly_chart(fig_bar, use_container_width=True)
         else:
@@ -347,7 +546,8 @@ with tab_general:
 
     st.markdown("---")
 
-    # FILA 2 (ABAJO): UBICACIÓN DE ESTACIONES, AUTORIDAD AMBIENTAL Y FICHA TERRITORIAL
+    # Fila inferior: mapa georreferenciado a la izquierda y ficha de autoridad
+    # ambiental + tabla resumen de municipios monitoreados a la derecha.
     titulo_mapa = (
         f"Ubicación de Estaciones y Gestión Ambiental en {depto_sel}"
         if depto_sel != "Todos los departamentos"
@@ -355,114 +555,187 @@ with tab_general:
     )
     st.markdown(f"#### {titulo_mapa}")
 
-    if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
-        df_geo_valid = df_filtered.dropna(subset=['Latitud', 'Longitud']).copy()
-        
+    if (
+        not df_filtered.empty
+        and "Latitud" in df_filtered.columns
+        and "Longitud" in df_filtered.columns
+    ):
+        df_geo_valid = df_filtered.dropna(subset=["Latitud", "Longitud"]).copy()
+
         if not df_geo_valid.empty:
-            df_estaciones = (
-                df_geo_valid.groupby(['Nombre del Departamento', 'Nombre del Municipio', 'Autoridad Ambiental'], as_index=False)
-                .agg(
-                    Latitud=('Latitud', 'mean'),
-                    Longitud=('Longitud', 'mean'),
-                    Promedio_Estacion=('Promedio', 'mean'),
-                    Muestras=('Promedio', 'count')
-                )
+            # Consolida por municipio y autoridad ambiental para evitar trazar
+            # múltiples marcadores superpuestos de la misma ubicación.
+            df_estaciones = df_geo_valid.groupby(
+                ["Nombre del Departamento", "Nombre del Municipio", "Autoridad Ambiental"],
+                as_index=False,
+            ).agg(
+                Latitud=("Latitud", "mean"),
+                Longitud=("Longitud", "mean"),
+                Promedio_Estacion=("Promedio", "mean"),
+                Muestras=("Promedio", "count"),
             )
-            df_estaciones['Tamano_Burbuja'] = df_estaciones['Promedio_Estacion'].clip(lower=1.0)
-            
+            # Asegura un tamaño mínimo positivo para que el parámetro `size` de
+            # Plotly no falle si un promedio es cero o negativo.
+            df_estaciones["Tamano_Burbuja"] = df_estaciones[
+                "Promedio_Estacion"
+            ].clip(lower=1.0)
+
             centro_mapa, zoom_mapa = calcular_zoom_y_centro(
-                df_estaciones['Latitud'],
-                df_estaciones['Longitud'],
-                es_nacional=(depto_sel == "Todos los departamentos")
+                df_estaciones["Latitud"],
+                df_estaciones["Longitud"],
+                es_nacional=(depto_sel == "Todos los departamentos"),
             )
-            
+
             col_map_view, col_map_info = st.columns([2.1, 1])
-            
+
             with col_map_view:
-                fig_map = crear_mapa_estaciones(df_estaciones, contaminante_sel, centro_mapa, zoom_mapa)
+                fig_map = crear_mapa_estaciones(
+                    df_estaciones, contaminante_sel, centro_mapa, zoom_mapa
+                )
                 st.plotly_chart(fig_map, use_container_width=True)
-            
+
             with col_map_info:
                 st.markdown("##### Gobernanza y Estaciones Activas")
                 if depto_sel != "Todos los departamentos":
                     autoridad_actual = obtener_autoridad_ambiental(depto_sel)
-                    st.markdown(f"**Autoridad Ambiental Competente:**  \n{autoridad_actual}")
+                    st.markdown(
+                        f"**Autoridad Ambiental Competente:**  \n{autoridad_actual}"
+                    )
                 else:
-                    st.markdown("**Autoridad Ambiental Competente:**  \nCorporaciones Autónomas Regionales (CAR) / Autoridades Urbanas / IDEAM")
-                
-                st.markdown(f"**Municipios / Puntos Georreferenciados:** {len(df_estaciones)}")
-                
-                df_tabla_est = (
-                    df_estaciones[['Nombre del Municipio', 'Nombre del Departamento', 'Promedio_Estacion', 'Muestras']]
-                    .sort_values(by='Promedio_Estacion', ascending=False)
-                    .rename(columns={
-                        'Nombre del Municipio': 'Municipio',
-                        'Nombre del Departamento': 'Departamento',
-                        'Promedio_Estacion': f'Media ({contaminante_sel})'
-                    })
+                    st.markdown(
+                        "**Autoridad Ambiental Competente:**  \n"
+                        "Corporaciones Autónomas Regionales (CAR) / "
+                        "Autoridades Urbanas / IDEAM"
+                    )
+
+                st.markdown(
+                    f"**Municipios / Puntos Georreferenciados:** {len(df_estaciones)}"
                 )
-                df_tabla_est[f'Media ({contaminante_sel})'] = df_tabla_est[f'Media ({contaminante_sel})'].round(2)
+
+                df_tabla_est = (
+                    df_estaciones[
+                        [
+                            "Nombre del Municipio",
+                            "Nombre del Departamento",
+                            "Promedio_Estacion",
+                            "Muestras",
+                        ]
+                    ]
+                    .sort_values(by="Promedio_Estacion", ascending=False)
+                    .rename(
+                        columns={
+                            "Nombre del Municipio": "Municipio",
+                            "Nombre del Departamento": "Departamento",
+                            "Promedio_Estacion": f"Media ({contaminante_sel})",
+                        }
+                    )
+                )
+                df_tabla_est[f"Media ({contaminante_sel})"] = df_tabla_est[
+                    f"Media ({contaminante_sel})"
+                ].round(2)
                 st.dataframe(df_tabla_est, use_container_width=True, height=280)
-            
+
             st.caption(
-                "Pase el cursor sobre cada punto para consultar el municipio, la autoridad ambiental asociada, "
-                "la concentración media y el volumen de registros en el período seleccionado."
+                "Pase el cursor sobre cada punto para consultar el municipio, "
+                "la autoridad ambiental asociada, la concentración media y el "
+                "volumen de registros en el período seleccionado."
             )
         else:
-            st.warning("Los registros filtrados no contienen coordenadas válidas de latitud y longitud.")
+            st.warning(
+                "Los registros filtrados no contienen coordenadas válidas de latitud y longitud."
+            )
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 
 with tab_comparativa:
+    # Contrasta dos departamentos en el mismo contaminante y rango de años
+    # definidos en la barra lateral, sin depender del filtro departamental principal.
     st.markdown("#### Análisis de Comparativa Cruzada por Departamento")
-    st.markdown("Seleccione dos regiones o departamentos diferentes para contrastar su comportamiento histórico frente al estándar.")
-    
+    st.markdown(
+        "Seleccione dos regiones o departamentos diferentes para contrastar "
+        "su comportamiento histórico frente al estándar."
+    )
+
     col_comp1, col_comp2 = st.columns(2)
     with col_comp1:
         dep1 = st.selectbox("Seleccionar Región A", departamentos_disponibles, index=0)
     with col_comp2:
-        dep2 = st.selectbox("Seleccionar Región B", departamentos_disponibles, index=min(1, len(departamentos_disponibles) - 1))
-    
-    df_comp = df[(df['Variable'] == contaminante_sel) & (df['Año'] >= ano_inicio) & (df['Año'] <= ano_fin)]
-    df_comp_filtered = df_comp[df_comp['Nombre del Departamento'].isin([dep1, dep2])]
-    
+        dep2 = st.selectbox(
+            "Seleccionar Región B",
+            departamentos_disponibles,
+            index=min(1, len(departamentos_disponibles) - 1),
+        )
+
+    df_comp = df[
+        (df["Variable"] == contaminante_sel)
+        & (df["Año"] >= ano_inicio)
+        & (df["Año"] <= ano_fin)
+    ]
+    df_comp_filtered = df_comp[
+        df_comp["Nombre del Departamento"].isin([dep1, dep2])
+    ]
+
     if not df_comp_filtered.empty:
-        df_comp_trend = df_comp_filtered.groupby(['Año', 'Nombre del Departamento'])['Promedio'].mean().reset_index()
-        
+        df_comp_trend = (
+            df_comp_filtered.groupby(["Año", "Nombre del Departamento"])["Promedio"]
+            .mean()
+            .reset_index()
+        )
+
         fig_comp = px.line(
             df_comp_trend,
-            x='Año',
-            y='Promedio',
-            color='Nombre del Departamento',
+            x="Año",
+            y="Promedio",
+            color="Nombre del Departamento",
             markers=True,
-            line_shape='spline',
-            title=f"Comparativa Cruzada de {contaminante_sel}: {dep1} vs {dep2}"
+            line_shape="spline",
+            title=f"Comparativa Cruzada de {contaminante_sel}: {dep1} vs {dep2}",
         )
-        fig_comp.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia")
+        fig_comp.add_hline(
+            y=LIMITE_OMS,
+            line_dash="dash",
+            line_color="red",
+            annotation_text="Límite Seguro Referencia",
+        )
         fig_comp.update_layout(
-            margin={"r": 0, "t": 30, "l": 0, "b": 0}, 
+            margin={"r": 0, "t": 30, "l": 0, "b": 0},
             height=420,
             xaxis_title="Año de Evaluación",
-            yaxis_title=f"Concentración Promedio ({contaminante_sel})"
+            yaxis_title=f"Concentración Promedio ({contaminante_sel})",
         )
         st.plotly_chart(fig_comp, use_container_width=True)
-        
+
         st.markdown("#### Resumen Estadístico Comparativo")
-        df_resumen_comp = df_comp_filtered.groupby('Nombre del Departamento').agg(
-            Concentracion_Promedio=('Promedio', 'mean'),
-            Pico_Maximo=('Máximo' if 'Máximo' in df_comp_filtered.columns else 'Promedio', 'max'),
-            Muestras_Totales=('Promedio', 'count')
-        ).reset_index()
+        col_max_comp = (
+            "Máximo" if "Máximo" in df_comp_filtered.columns else "Promedio"
+        )
+        df_resumen_comp = (
+            df_comp_filtered.groupby("Nombre del Departamento")
+            .agg(
+                Concentracion_Promedio=("Promedio", "mean"),
+                Pico_Maximo=(col_max_comp, "max"),
+                Muestras_Totales=("Promedio", "count"),
+            )
+            .reset_index()
+        )
         st.dataframe(df_resumen_comp, use_container_width=True)
     else:
-        st.warning("No hay suficientes datos cruzados para generar la comparativa con las regiones seleccionadas.")
+        st.warning(
+            "No hay suficientes datos cruzados para generar la comparativa "
+            "con las regiones seleccionadas."
+        )
 
 with tab_exportar:
+    # Permite auditar y descargar el subconjunto exacto de registros que
+    # respalda los KPIs y gráficos visibles en ese momento.
     st.markdown("#### Exportación de Datos Procesados")
-    st.markdown("Descargue el conjunto de datos filtrados actualmente para integraciones o reportes externos en formato estructurado.")
-    
+    st.markdown(
+        "Descargue el conjunto de datos filtrados actualmente para "
+        "integraciones o reportes externos en formato estructurado."
+    )
+
     if not df_filtered.empty:
-        csv_data = df_filtered.to_csv(index=False).encode('utf-8')
+        csv_data = df_filtered.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="Descargar Dataset Filtrado (.csv)",
             data=csv_data,
@@ -470,6 +743,8 @@ with tab_exportar:
             mime="text/csv",
         )
         st.dataframe(df_filtered.head(100), use_container_width=True)
-        st.caption("Vista previa de los primeros 100 registros correspondientes a la selección actual.")
+        st.caption(
+            "Vista previa de los primeros 100 registros correspondientes a la selección actual."
+        )
     else:
         st.warning("No hay registros disponibles para exportar con los filtros actuales.")

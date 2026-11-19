@@ -1,12 +1,13 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import unicodedata
 
 # Configuración de página en modo ancho (Wide)
 st.set_page_config(page_title="Panel Ejecutivo de Calidad del Aire - Colombia", layout="wide")
 
-# Función robusta para normalizar texto por seguridad
+# Función robusta para normalizar texto y evitar duplicados por tildes o mayúsculas
 def normalizar_texto(texto):
     if pd.isna(texto):
         return texto
@@ -15,13 +16,56 @@ def normalizar_texto(texto):
     texto_sin_tildes = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
     return texto_sin_tildes.title()
 
-# Carga de datos apuntando al archivo limpio unificado
+# Mapeo de Autoridad Ambiental por departamento (normalizado sin tildes)
+AUTORIDADES_AMBIENTALES = {
+    "Amazonas": "Corpoamazonia",
+    "Antioquia": "Corantioquia / Cornare / Área Metropolitana del Valle de Aburrá",
+    "Arauca": "Corporinoquia",
+    "Atlantico": "CRA (Corporación Autónoma Regional del Atlántico)",
+    "Bogota, D.C.": "Secretaría Distrital de Ambiente (SDA)",
+    "Bolivar": "Cardique / EPA Cartagena / CSB",
+    "Boyaca": "Corpoboyacá",
+    "Caldas": "Corpocaldas",
+    "Caqueta": "Corpoamazonia",
+    "Casanare": "Corporinoquia",
+    "Cauca": "CRC (Corporación Autónoma Regional del Cauca)",
+    "Cesar": "Corpocesar",
+    "Choco": "Codechocó",
+    "Cordoba": "CVS (Corporación Autónoma Regional de los Valles del Sinú y del San Jorge)",
+    "Cundinamarca": "CAR (Corporación Autónoma Regional de Cundinamarca)",
+    "Guainia": "CDA",
+    "Guaviare": "CDA",
+    "Huila": "CAM (Corporación Autónoma Regional del Alto Magdalena)",
+    "La Guajira": "Corpoguajira",
+    "Magdalena": "Corpamag / DADSA",
+    "Meta": "Cormacarena",
+    "Narino": "Corponariño",
+    "Norte De Santander": "Corponor",
+    "Putumayo": "Corpoamazonia",
+    "Quindio": "CRQ (Corporación Autónoma Regional del Quindío)",
+    "Risaralda": "Carder",
+    "San Andres, Providencia Y Santa Catalina": "Coralina",
+    "Santander": "CDMB / CAS",
+    "Sucre": "Carsucre",
+    "Tolima": "Cortolima",
+    "Valle Del Cauca": "CVC (Corporación Autónoma Regional del Valle del Cauca)",
+    "Vaupes": "CDA",
+    "Vichada": "Corporinoquia",
+}
+
+def obtener_autoridad_ambiental(depto):
+    if pd.isna(depto):
+        return "Autoridad Ambiental Regional / IDEAM"
+    return AUTORIDADES_AMBIENTALES.get(str(depto).strip(), "Corporación Autónoma Regional / IDEAM")
+
+# Carga de datos optimizada desde el dataset limpio
 @st.cache_data
 def load_data():
     df = pd.read_csv('Dataset_calidad_Aire/airquality_clean_II.csv')
     
     if 'Nombre del Departamento' in df.columns:
         df['Nombre del Departamento'] = df['Nombre del Departamento'].apply(normalizar_texto)
+        df['Autoridad Ambiental'] = df['Nombre del Departamento'].apply(obtener_autoridad_ambiental)
     if 'Nombre del Municipio' in df.columns:
         df['Nombre del Municipio'] = df['Nombre del Municipio'].apply(normalizar_texto)
     if 'Variable' in df.columns:
@@ -29,10 +73,70 @@ def load_data():
         
     return df
 
+def calcular_zoom_y_centro(lat_series, lon_series, es_nacional=False):
+    lat_clean = pd.to_numeric(lat_series, errors='coerce').dropna()
+    lon_clean = pd.to_numeric(lon_series, errors='coerce').dropna()
+    
+    if lat_clean.empty or lon_clean.empty:
+        return {"lat": 4.5709, "lon": -74.2973}, 5.0
+    
+    centro = {"lat": float(lat_clean.mean()), "lon": float(lon_clean.mean())}
+    if es_nacional:
+        return {"lat": 4.5709, "lon": -74.2973}, 5.0
+    
+    span = max(float(lat_clean.max() - lat_clean.min()), float(lon_clean.max() - lon_clean.min()))
+    if span < 0.15:
+        zoom = 10.5
+    elif span < 0.5:
+        zoom = 9.0
+    elif span < 1.5:
+        zoom = 7.8
+    elif span < 3.5:
+        zoom = 6.5
+    else:
+        zoom = 5.5
+    return centro, zoom
+
+def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
+    # Compatible con distintas versiones de Plotly en Streamlit Cloud
+    scatter_fn = getattr(px, "scatter_map", None) or px.scatter_mapbox
+    fig = scatter_fn(
+        df_estaciones,
+        lat='Latitud',
+        lon='Longitud',
+        color='Promedio_Estacion',
+        size='Tamano_Burbuja',
+        hover_name='Nombre del Municipio',
+        hover_data={
+            'Nombre del Departamento': True,
+            'Autoridad Ambiental': True,
+            'Promedio_Estacion': ':.2f',
+            'Muestras': True,
+            'Latitud': ':.4f',
+            'Longitud': ':.4f',
+            'Tamano_Burbuja': False
+        },
+        labels={
+            'Promedio_Estacion': f'Media {contaminante}',
+            'Nombre del Departamento': 'Departamento',
+            'Muestras': 'Registros'
+        },
+        color_continuous_scale='Turbo',
+        zoom=zoom,
+        center=centro
+    )
+    style_kwargs = {"style": "carto-positron"} if scatter_fn.__name__ == "scatter_map" else {"mapbox_style": "carto-positron"}
+    fig.update_layout(
+        **style_kwargs,
+        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+        height=440
+    )
+    return fig
+
 df = load_data()
 
 # ---------------------------------------------------------
-# BARRA LATERAL / FILTROS CORPORATIVOS LIMPIOS Y JERÁRQUICOS
+# BARRA LATERAL / FILTROS CORPORATIVOS
 # ---------------------------------------------------------
 st.sidebar.markdown("### Panel de Control")
 st.sidebar.markdown("Parámetros gerenciales de segmentación")
@@ -41,7 +145,6 @@ departamentos_disponibles = sorted(df['Nombre del Departamento'].dropna().unique
 depto_sel = st.sidebar.selectbox("Departamento / Región", ["Todos los departamentos"] + departamentos_disponibles)
 
 anos_disponibles = sorted(df['Año'].dropna().unique())
-val_min, val_max = int(min(anos_disponibles)), int(max(anos_disponibles))
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Rango Temporal de Análisis")
@@ -49,7 +152,7 @@ col_y1, col_y2 = st.sidebar.columns(2)
 with col_y1:
     ano_inicio = st.selectbox("Año Inicio", anos_disponibles, index=0)
 with col_y2:
-    ano_fin = st.selectbox("Año Fin", anos_disponibles, index=len(anos_disponibles)-1)
+    ano_fin = st.selectbox("Año Fin", anos_disponibles, index=len(anos_disponibles) - 1)
 
 if ano_inicio > ano_fin:
     ano_inicio, ano_fin = ano_fin, ano_inicio
@@ -79,16 +182,17 @@ brecha_oms = ((promedio_general - limite_oms) / limite_oms) * 100 if limite_oms 
 volatilidad = df_filtered['Promedio'].std() if not df_filtered.empty else 0
 
 if not df_filtered.empty:
-    mun_critico = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().idxmax()
-    val_critico = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean().max()
+    medias_mun = df_filtered.groupby('Nombre del Municipio')['Promedio'].mean()
+    mun_critico = medias_mun.idxmax()
+    val_critico = medias_mun.max()
     max_absoluto = df_filtered['Máximo'].max() if 'Máximo' in df_filtered.columns else df_filtered['Promedio'].max()
     registros_criticos = len(df_filtered[df_filtered['Promedio'] > limite_oms])
     municipios_cobertura = df_filtered['Nombre del Municipio'].nunique()
     
-    df_Anos_prom = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
-    if len(df_Anos_prom) >= 2:
-        val_inicial = df_Anos_prom.iloc[0]['Promedio']
-        val_final = df_Anos_prom.iloc[-1]['Promedio']
+    df_anos_prom = df_filtered.groupby('Año')['Promedio'].mean().reset_index()
+    if len(df_anos_prom) >= 2:
+        val_inicial = df_anos_prom.iloc[0]['Promedio']
+        val_final = df_anos_prom.iloc[-1]['Promedio']
         variacion_interanual = ((val_final - val_inicial) / val_inicial) * 100 if val_inicial > 0 else 0
     else:
         variacion_interanual = 0.0
@@ -100,14 +204,12 @@ else:
     municipios_cobertura = 0
     variacion_interanual = 0.0
 
-# Fila 1 de KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(label=f"CONCENTRACIÓN MEDIA ({contaminante_sel})", value=f"{promedio_general:.2f}", delta=f"{brecha_oms:+.1f}% vs Límite OMS", delta_color="inverse")
 col2.metric(label="ESTABILIDAD (DESV. EST)", value=f"{volatilidad:.2f}", delta="Variabilidad de registros")
 col3.metric(label="MUNICIPIO CON MAYOR PRESIÓN", value=f"{mun_critico}", delta=f"Pico: {val_critico:.1f}")
 col4.metric(label="TOTAL DE MUESTRAS", value=f"{total_registros:,}".replace(",", "."))
 
-# Fila 2 de KPIs
 col5, col6, col7, col8 = st.columns(4)
 col5.metric(label="PICO HISTÓRICO MÁXIMO", value=f"{max_absoluto:.2f}", delta="Valor extremo registrado")
 col6.metric(label="EVENTOS SOBRE EL LÍMITE", value=f"{registros_criticos:,}".replace(",", "."), delta=f"Superan {limite_oms} de referencia", delta_color="inverse")
@@ -174,7 +276,7 @@ st.markdown("---")
 tab_general, tab_comparativa, tab_exportar = st.tabs(["Analítica General y Mapas", "Comparativa Territorial", "Repositorio y Exportación"])
 
 with tab_general:
-    # FILA 1: Evolución Histórica y Ranking de Municipios (Lado a lado)
+    # FILA 1: Evolución Histórica y Ranking de Municipios
     col_grafico, col_ranking = st.columns([1.2, 1])
 
     with col_grafico:
@@ -187,11 +289,11 @@ with tab_general:
                 y='Promedio', 
                 markers=True,
                 line_shape='spline',
-                title=f"Comportamiento Histórico Promedio"
+                title=f"Comportamiento Histórico Promedio de {contaminante_sel}"
             )
             fig_line.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro (15.0)")
             fig_line.update_layout(
-                margin={"r":0,"t":30,"l":0,"b":0}, 
+                margin={"r": 0, "t": 30, "l": 0, "b": 0}, 
                 height=380,
                 xaxis_title="Año de Monitoreo",
                 yaxis_title=f"Concentración Media ({contaminante_sel})"
@@ -214,12 +316,12 @@ with tab_general:
                 text_auto='.2f',
                 color='Promedio',
                 color_continuous_scale='Oranges',
-                title=f"Ranking de Municipios Críticos"
+                title=f"Ranking de Municipios Críticos ({contaminante_sel})"
             )
             fig_bar.add_vline(x=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite OMS")
             fig_bar.update_layout(
-                yaxis={'categoryorder':'total ascending'}, 
-                margin={"r":0,"t":30,"l":0,"b":0}, 
+                yaxis={'categoryorder': 'total ascending'}, 
+                margin={"r": 0, "t": 30, "l": 0, "b": 0}, 
                 height=380,
                 xaxis_title=f"Concentración Promedio ({contaminante_sel})",
                 yaxis_title="Municipio"
@@ -230,42 +332,69 @@ with tab_general:
 
     st.markdown("---")
 
-    # FILA 2 (ABAJO): MAPA GEOGRÁFICO REAL DE COLOMBIA / SUDAMÉRICA CON FRONTERAS
-    titulo_mapa = f"Mapa Geográfico de Estaciones y Ciudades en {depto_sel}" if depto_sel != "Todos los departamentos" else f"Mapa Geográfico Nacional de Colombia — {contaminante_sel}"
+    # FILA 2 (ABAJO): UBICACIÓN DE ESTACIONES, AUTORIDAD AMBIENTAL Y FICHA TERRITORIAL
+    titulo_mapa = (
+        f"Ubicación de Estaciones y Gestión Ambiental en {depto_sel}"
+        if depto_sel != "Todos los departamentos"
+        else f"Ubicación Nacional de Estaciones y Municipios — {contaminante_sel}"
+    )
     st.markdown(f"#### {titulo_mapa}")
 
     if not df_filtered.empty and 'Latitud' in df_filtered.columns and 'Longitud' in df_filtered.columns:
-        df_map_data = df_filtered.drop_duplicates(subset=['Nombre del Municipio', 'Latitud', 'Longitud'])
+        df_geo_valid = df_filtered.dropna(subset=['Latitud', 'Longitud']).copy()
         
-        # MAPA GEOGRÁFICO NATIVO CON FRONTERAS DE PAÍSES (SUDAMÉRICA / COLOMBIA)
-        fig_map = px.scatter_geo(
-            df_map_data,
-            lat='Latitud',
-            lon='Longitud',
-            color='Promedio',
-            size='Promedio',
-            hover_name='Nombre del Municipio',
-            hover_data=['Nombre del Departamento', 'Promedio'],
-            color_continuous_scale='Viridis',
-            scope='south america',
-            title=f"Dispersión Territorial sobre Mapa Geográfico ({contaminante_sel})"
-        )
-        
-        # Configuración de proyección enfocada en Colombia con fronteras visibles
-        fig_map.update_geos(
-            center=dict(lat=4.5709, lon=-74.2973),
-            projection_scale=4.5,
-            showcountries=True, countrycolor="gray",
-            showland=True, landcolor="rgb(240, 240, 240)",
-            showocean=True, oceancolor="rgb(230, 242, 255)"
-        )
-        
-        fig_map.update_layout(
-            margin={"r":0,"t":30,"l":0,"b":0}, 
-            height=450
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
-        st.caption("Nota: Este mapa geográfico muestra los países de la región y ubica las ciudades y estaciones de forma interactiva según el departamento seleccionado.")
+        if not df_geo_valid.empty:
+            df_estaciones = (
+                df_geo_valid.groupby(['Nombre del Departamento', 'Nombre del Municipio', 'Autoridad Ambiental'], as_index=False)
+                .agg(
+                    Latitud=('Latitud', 'mean'),
+                    Longitud=('Longitud', 'mean'),
+                    Promedio_Estacion=('Promedio', 'mean'),
+                    Muestras=('Promedio', 'count')
+                )
+            )
+            df_estaciones['Tamano_Burbuja'] = df_estaciones['Promedio_Estacion'].clip(lower=1.0)
+            
+            centro_mapa, zoom_mapa = calcular_zoom_y_centro(
+                df_estaciones['Latitud'],
+                df_estaciones['Longitud'],
+                es_nacional=(depto_sel == "Todos los departamentos")
+            )
+            
+            col_map_view, col_map_info = st.columns([2.1, 1])
+            
+            with col_map_view:
+                fig_map = crear_mapa_estaciones(df_estaciones, contaminante_sel, centro_mapa, zoom_mapa)
+                st.plotly_chart(fig_map, use_container_width=True)
+            
+            with col_map_info:
+                st.markdown("##### Gobernanza y Estaciones Activas")
+                if depto_sel != "Todos los departamentos":
+                    autoridad_actual = obtener_autoridad_ambiental(depto_sel)
+                    st.markdown(f"**Autoridad Ambiental Competente:**  \n{autoridad_actual}")
+                else:
+                    st.markdown("**Autoridad Ambiental Competente:**  \nCorporaciones Autónomas Regionales (CAR) / Autoridades Urbanas / IDEAM")
+                
+                st.markdown(f"**Municipios / Puntos Georreferenciados:** {len(df_estaciones)}")
+                
+                df_tabla_est = (
+                    df_estaciones[['Nombre del Municipio', 'Nombre del Departamento', 'Promedio_Estacion', 'Muestras']]
+                    .sort_values(by='Promedio_Estacion', ascending=False)
+                    .rename(columns={
+                        'Nombre del Municipio': 'Municipio',
+                        'Nombre del Departamento': 'Departamento',
+                        'Promedio_Estacion': f'Media ({contaminante_sel})'
+                    })
+                )
+                df_tabla_est[f'Media ({contaminante_sel})'] = df_tabla_est[f'Media ({contaminante_sel})'].round(2)
+                st.dataframe(df_tabla_est, use_container_width=True, height=280)
+            
+            st.caption(
+                "Pase el cursor sobre cada punto para consultar el municipio, la autoridad ambiental asociada, "
+                "la concentración media y el volumen de registros en el período seleccionado."
+            )
+        else:
+            st.warning("Los registros filtrados no contienen coordenadas válidas de latitud y longitud.")
     else:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 
@@ -277,7 +406,7 @@ with tab_comparativa:
     with col_comp1:
         dep1 = st.selectbox("Seleccionar Región A", departamentos_disponibles, index=0)
     with col_comp2:
-        dep2 = st.selectbox("Seleccionar Región B", departamentos_disponibles, index=min(1, len(departamentos_disponibles)-1))
+        dep2 = st.selectbox("Seleccionar Región B", departamentos_disponibles, index=min(1, len(departamentos_disponibles) - 1))
     
     df_comp = df[(df['Variable'] == contaminante_sel) & (df['Año'] >= ano_inicio) & (df['Año'] <= ano_fin)]
     df_comp_filtered = df_comp[df_comp['Nombre del Departamento'].isin([dep1, dep2])]
@@ -296,7 +425,7 @@ with tab_comparativa:
         )
         fig_comp.add_hline(y=limite_oms, line_dash="dash", line_color="red", annotation_text="Límite Seguro Referencia")
         fig_comp.update_layout(
-            margin={"r":0,"t":30,"l":0,"b":0}, 
+            margin={"r": 0, "t": 30, "l": 0, "b": 0}, 
             height=420,
             xaxis_title="Año de Evaluación",
             yaxis_title=f"Concentración Promedio ({contaminante_sel})"

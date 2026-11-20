@@ -6,12 +6,12 @@ riesgo ambiental y exportación de datos de calidad del aire (fuente IDEAM).
 
 Arquitectura y criterios de diseño:
 - Fuente de datos: `Dataset_calidad_Aire/airquality_clean_II.csv` (previamente
-  depurado y estandarizado en Google Colab).
-- Normalización defensiva: Se aplica normalización Unicode (NFKD) sin tildes y
-  estandarización de mayúsculas en tiempo de carga para evitar duplicados por
-  variaciones tipográficas.
-- Criterio de referencia: Umbral de 15.0 utilizado como línea base de alerta
-  comparativa en KPIs, narrativa automática y visualizaciones.
+  depurado y estandarizado).
+- Enfoque en contaminantes atmosféricos: Se excluyen variables meteorológicas
+  y se conservan únicamente contaminantes del aire (`CO`, `NO`, `NO2`, `O3`,
+  `PM10`, `PM2.5`, `PST`, `SO2`).
+- Umbrales dinámicos por contaminante: Cada contaminante con guía de referencia
+  se evalúa contra su propio umbral y unidad configurados en `LIMITES_OMS`.
 - Compatibilidad geoespacial: La función `crear_mapa_estaciones` detecta si la
   versión de Plotly instalada expone `px.scatter_map` o `px.scatter_mapbox` para
   evitar fallos de compatibilidad en entornos de despliegue.
@@ -30,52 +30,96 @@ st.set_page_config(
     layout="wide",
 )
 
-# Umbral de referencia central usado para calcular brechas, eventos críticos y
-# líneas de alerta en las series temporales y rankings.
-LIMITE_OMS = 15.0
+# Contaminantes atmosféricos del dataset (se excluyen variables meteorológicas).
+CONTAMINANTES_ATMOSFERICOS = [
+    "CO",
+    "NO",
+    "NO2",
+    "O3",
+    "PM10",
+    "PM2.5",
+    "PST",
+    "SO2",
+]
 
-# Catálogo de definiciones técnicas para contaminantes frecuentes en redes de
-# monitoreo ambiental. Si el dataset incorpora una sigla no listada aquí, la
-# interfaz genera una descripción genérica de respaldo sin romper el glosario.
+# Límites de referencia dinámicos por contaminante (en µg/m³).
+# Las variables sin límite oficial definido en este diccionario (`NO`, `PST`)
+# se muestran en modo informativo sin activar comparación de umbral OMS.
+LIMITES_OMS = {
+    "PM2.5": {
+        "umbral": 5.0,
+        "criterio": "Guía anual OMS",
+        "unidad": "µg/m³",
+    },
+    "PM10": {
+        "umbral": 15.0,
+        "criterio": "Guía anual OMS",
+        "unidad": "µg/m³",
+    },
+    "NO2": {
+        "umbral": 10.0,
+        "criterio": "Guía anual OMS",
+        "unidad": "µg/m³",
+    },
+    "O3": {
+        "umbral": 100.0,
+        "criterio": "Guía 8h OMS",
+        "unidad": "µg/m³",
+    },
+    "SO2": {
+        "umbral": 40.0,
+        "criterio": "Guía 24h OMS",
+        "unidad": "µg/m³",
+    },
+    "CO": {
+        "umbral": 4000.0,
+        "criterio": "Guía 24h OMS (4 mg/m³)",
+        "unidad": "µg/m³",
+    },
+}
+
+# Catálogo de definiciones técnicas para los contaminantes del sistema.
 GLOSARIO_CONTAMINANTES = {
     "CO": (
         "**Monóxido de Carbono (CO):** Gas incoloro e inodoro generado "
         "principalmente por la combustión incompleta en fuentes móviles "
-        "(vehículos y transporte) e industriales."
+        "(vehículos y transporte) e industriales. Referencia de control en este "
+        "tablero: 4.000 µg/m³ (equivalente a 4 mg/m³ en guía de 24h)."
     ),
     "PM10": (
         "**Material Particulado PM10:** Pequeñas partículas sólidas o líquidas de "
         "polvo, cenizas, hollín o humo con diámetro menor a 10 micras que "
-        "ingresan al sistema respiratorio alto."
+        "ingresan al sistema respiratorio alto. Referencia anual OMS: 15,0 µg/m³."
     ),
     "PM2.5": (
         "**Material Particulado PM2.5:** Partículas finas respirables con diámetro "
         "inferior a 2.5 micras; debido a su tamaño, penetran profundamente en los "
-        "pulmones y el torrente sanguíneo."
+        "pulmones y el torrente sanguíneo. Referencia anual OMS: 5,0 µg/m³."
     ),
     "NO2": (
         "**Dióxido de Nitrógeno (NO2):** Gas altamente irritante proveniente de "
         "procesos de combustión a alta temperatura (tráfico vehicular e "
-        "industrias de energía)."
+        "industrias de energía). Referencia anual OMS: 10,0 µg/m³."
     ),
     "SO2": (
         "**Dióxido de Azufre (SO2):** Gas incoloro pero con olor penetrante, "
         "originado principalmente por la quema de combustibles fósiles que "
-        "contienen azufre (carbón y petróleo)."
+        "contienen azufre (carbón y petróleo). Referencia 24h OMS: 40,0 µg/m³."
     ),
     "O3": (
         "**Ozono Troposférico (O3):** Gas secundario formado cuando los "
         "contaminantes reaccionan con la luz solar; componente clave del smog "
-        "fotoquímico en zonas urbanas."
+        "fotoquímico en zonas urbanas. Referencia 8h OMS: 100,0 µg/m³."
     ),
     "NO": (
         "**Monóxido de Nitrógeno (NO):** Gas precursor de la contaminación "
-        "fotoquímica emitido por vehículos y procesos de combustión."
+        "fotoquímica emitido por vehículos y procesos de combustión. Variable "
+        "de monitoreo sin umbral guía único asignado en este panel."
     ),
-    "NOX": (
-        "**Óxidos de Nitrógeno (NOx):** Grupo de gases compuestos por nitrógeno y "
-        "oxígeno, altamente reactivos y generados en procesos de combustión "
-        "urbana e industrial."
+    "PST": (
+        "**Partículas Suspendidas Totales (PST):** Fracción total de partículas "
+        "sólidas o líquidas suspendidas en el aire. Variable de monitoreo sin "
+        "umbral guía único asignado en este panel."
     ),
 }
 
@@ -119,12 +163,7 @@ AUTORIDADES_AMBIENTALES = {
 
 
 def normalizar_texto(texto):
-    """Estandariza cadenas eliminando acentos diacríticos y aplicando formato título.
-
-    Se usa NFKD para descomponer caracteres acentuados en carácter base + marca
-    combinante (`unicodedata.combining`), evitando que "Atlántico" y "Atlantico"
-    se traten como categorías distintas en agrupaciones y filtros.
-    """
+    """Estandariza cadenas eliminando acentos diacríticos y aplicando formato título."""
     if pd.isna(texto):
         return texto
     texto_str = str(texto).strip()
@@ -133,6 +172,19 @@ def normalizar_texto(texto):
         c for c in nfkd_form if not unicodedata.combining(c)
     )
     return texto_sin_tildes.title()
+
+
+def obtener_config_oms(variable):
+    """Retorna (umbral, unidad, criterio) si el contaminante tiene límite OMS."""
+    clave = str(variable).strip().upper() if pd.notna(variable) else ""
+    config = LIMITES_OMS.get(clave)
+    if config is None:
+        return None, "µg/m³", None
+    return (
+        float(config["umbral"]),
+        str(config["unidad"]),
+        str(config["criterio"]),
+    )
 
 
 def obtener_autoridad_ambiental(depto):
@@ -147,11 +199,7 @@ def obtener_autoridad_ambiental(depto):
 
 @st.cache_data
 def load_data():
-    """Carga y normaliza el dataset base con caché de sesión en Streamlit.
-
-    El decorador `@st.cache_data` evita releer y reprocesar el CSV en cada
-    interacción del usuario con los selectores o pestañas.
-    """
+    """Carga, filtra a contaminantes atmosféricos y normaliza el dataset."""
     df = pd.read_csv("Dataset_calidad_Aire/airquality_clean_II.csv")
 
     if "Nombre del Departamento" in df.columns:
@@ -167,22 +215,15 @@ def load_data():
             normalizar_texto
         )
 
-    # Las siglas de contaminantes se normalizan en mayúsculas para hacer
-    # coincidencia exacta con las claves del glosario y etiquetas de KPIs.
     if "Variable" in df.columns:
         df["Variable"] = df["Variable"].apply(lambda x: str(x).strip().upper())
+        df = df[df["Variable"].isin(CONTAMINANTES_ATMOSFERICOS)].copy()
 
     return df
 
 
 def calcular_zoom_y_centro(lat_series, lon_series, es_nacional=False):
-    """Calcula coordenadas centrales y nivel de zoom adaptativo para el mapa.
-
-    Cuando se analiza un departamento específico, el zoom se ajusta según la
-    amplitud geográfica (`span`) de los puntos válidos para evitar vistas
-    demasiado lejanas o excesivamente cerradas. Si no hay coordenadas válidas,
-    regresa a un punto central de referencia en Colombia.
-    """
+    """Calcula coordenadas centrales y nivel de zoom adaptativo para el mapa."""
     lat_clean = pd.to_numeric(lat_series, errors="coerce").dropna()
     lon_clean = pd.to_numeric(lon_series, errors="coerce").dropna()
 
@@ -211,13 +252,8 @@ def calcular_zoom_y_centro(lat_series, lon_series, es_nacional=False):
     return centro, zoom
 
 
-def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
-    """Construye el mapa de burbujas georreferenciadas de estaciones/municipios.
-
-    Soporta tanto `px.scatter_map` (versiones recientes de Plotly, que configuran
-    el estilo y cámara bajo la clave `map`) como `px.scatter_mapbox` (versiones
-    anteriores, bajo `mapbox`).
-    """
+def crear_mapa_estaciones(df_estaciones, contaminante, unidad, centro, zoom):
+    """Construye el mapa de burbujas georreferenciadas de estaciones/municipios."""
     usa_scatter_map = hasattr(px, "scatter_map")
     scatter_fn = px.scatter_map if usa_scatter_map else px.scatter_mapbox
 
@@ -238,7 +274,7 @@ def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
             "Tamano_Burbuja": False,
         },
         labels={
-            "Promedio_Estacion": f"Media {contaminante}",
+            "Promedio_Estacion": f"Media {contaminante} ({unidad})",
             "Nombre del Departamento": "Departamento",
             "Muestras": "Registros",
         },
@@ -261,14 +297,12 @@ def crear_mapa_estaciones(df_estaciones, contaminante, centro, zoom):
     return fig
 
 
-# Carga inicial del dataset normalizado.
+# Carga inicial del dataset filtrado a contaminantes atmosféricos.
 df = load_data()
 
 # ---------------------------------------------------------
 # BARRA LATERAL / FILTROS CORPORATIVOS
 # ---------------------------------------------------------
-# Define el alcance territorial, temporal y de contaminante que alimenta de
-# forma sincronizada los KPIs, la narrativa ejecutiva y las pestañas analíticas.
 st.sidebar.markdown("### Panel de Control")
 st.sidebar.markdown("Parámetros gerenciales de segmentación")
 
@@ -292,20 +326,18 @@ with col_y2:
         index=len(anos_disponibles) - 1,
     )
 
-# Intercambia los límites si el usuario elige un año inicial mayor al final,
-# evitando filtros vacíos accidentales por orden de selección.
 if ano_inicio > ano_fin:
     ano_inicio, ano_fin = ano_fin, ano_inicio
 
 st.sidebar.markdown("---")
 variables_disponibles = sorted(df["Variable"].dropna().unique())
 contaminante_sel = st.sidebar.selectbox(
-    "Contaminante / Variable Evaluada",
+    "Contaminante Atmosférico Evaluado",
     variables_disponibles,
 )
 
-# Aplica el conjunto de filtros activos sobre una copia del DataFrame original
-# para preservar intacta la base completa en comparativas cruzadas.
+umbral_activo, unidad_activa, criterio_activo = obtener_config_oms(contaminante_sel)
+
 df_filtered = df.copy()
 if depto_sel != "Todos los departamentos":
     df_filtered = df_filtered[df_filtered["Nombre del Departamento"] == depto_sel]
@@ -321,30 +353,35 @@ df_filtered = df_filtered[df_filtered["Variable"] == contaminante_sel]
 st.markdown("### Panel Ejecutivo de Calidad del Aire")
 st.markdown("Sistema de Monitoreo Analítico y Evaluación de Riesgo Ambiental • IDEAM")
 
-promedio_general = df_filtered["Promedio"].mean() if not df_filtered.empty else 0.0
+promedio_general = float(df_filtered["Promedio"].mean()) if not df_filtered.empty else 0.0
 total_registros = len(df_filtered)
-brecha_oms = ((promedio_general - LIMITE_OMS) / LIMITE_OMS) * 100 if LIMITE_OMS > 0 else 0.0
-volatilidad = df_filtered["Promedio"].std() if not df_filtered.empty else 0.0
+volatilidad = float(df_filtered["Promedio"].std()) if not df_filtered.empty else 0.0
+
+if umbral_activo is not None and umbral_activo > 0:
+    brecha_oms = ((promedio_general - umbral_activo) / umbral_activo) * 100
+else:
+    brecha_oms = None
 
 if not df_filtered.empty:
     medias_mun = df_filtered.groupby("Nombre del Municipio")["Promedio"].mean()
     mun_critico = medias_mun.idxmax()
-    val_critico = medias_mun.max()
-    # Usa la columna 'Máximo' si existe en el CSV; de lo contrario recurre a 'Promedio'.
-    max_absoluto = (
+    val_critico = float(medias_mun.max())
+    max_absoluto = float(
         df_filtered["Máximo"].max()
         if "Máximo" in df_filtered.columns
         else df_filtered["Promedio"].max()
     )
-    registros_criticos = int((df_filtered["Promedio"] > LIMITE_OMS).sum())
-    municipios_cobertura = df_filtered["Nombre del Municipio"].nunique()
+    registros_criticos = (
+        int((df_filtered["Promedio"] > umbral_activo).sum())
+        if umbral_activo is not None
+        else None
+    )
+    municipios_cobertura = int(df_filtered["Nombre del Municipio"].nunique())
 
-    # Calcula la variación porcentual entre el primer y último año presente en
-    # la selección actual (no necesariamente los extremos del selector si faltan datos).
     df_anos_prom = df_filtered.groupby("Año")["Promedio"].mean().reset_index()
     if len(df_anos_prom) >= 2:
-        val_inicial = df_anos_prom.iloc[0]["Promedio"]
-        val_final = df_anos_prom.iloc[-1]["Promedio"]
+        val_inicial = float(df_anos_prom.iloc[0]["Promedio"])
+        val_final = float(df_anos_prom.iloc[-1]["Promedio"])
         variacion_interanual = (
             ((val_final - val_inicial) / val_inicial) * 100
             if val_inicial > 0
@@ -356,28 +393,42 @@ else:
     mun_critico = "N/A"
     val_critico = 0.0
     max_absoluto = 0.0
-    registros_criticos = 0
+    registros_criticos = 0 if umbral_activo is not None else None
     municipios_cobertura = 0
     variacion_interanual = 0.0
 
-# `delta_color="inverse"` invierte la semántica visual de Streamlit para que un
-# incremento en contaminación o superación del límite se resalte como adverso.
+delta_media = (
+    f"{brecha_oms:+.1f}% vs Límite OMS ({umbral_activo:g} {unidad_activa})"
+    if brecha_oms is not None
+    else "Sin umbral OMS asignado"
+)
+delta_eventos = (
+    f"Superan {umbral_activo:g} {unidad_activa}"
+    if registros_criticos is not None
+    else "Sin umbral OMS asignado"
+)
+valor_eventos = (
+    f"{registros_criticos:,}".replace(",", ".")
+    if registros_criticos is not None
+    else "N/A"
+)
+
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(
     label=f"CONCENTRACIÓN MEDIA ({contaminante_sel})",
-    value=f"{promedio_general:.2f}",
-    delta=f"{brecha_oms:+.1f}% vs Límite OMS",
-    delta_color="inverse",
+    value=f"{promedio_general:.2f} {unidad_activa}",
+    delta=delta_media,
+    delta_color="inverse" if brecha_oms is not None else "off",
 )
 col2.metric(
     label="ESTABILIDAD (DESV. EST)",
-    value=f"{volatilidad:.2f}",
+    value=f"{volatilidad:.2f} {unidad_activa}",
     delta="Variabilidad de registros",
 )
 col3.metric(
     label="MUNICIPIO CON MAYOR PRESIÓN",
     value=f"{mun_critico}",
-    delta=f"Pico: {val_critico:.1f}",
+    delta=f"Media: {val_critico:.1f} {unidad_activa}",
 )
 col4.metric(
     label="TOTAL DE MUESTRAS",
@@ -387,14 +438,14 @@ col4.metric(
 col5, col6, col7, col8 = st.columns(4)
 col5.metric(
     label="PICO HISTÓRICO MÁXIMO",
-    value=f"{max_absoluto:.2f}",
+    value=f"{max_absoluto:.2f} {unidad_activa}",
     delta="Valor extremo registrado",
 )
 col6.metric(
     label="EVENTOS SOBRE EL LÍMITE",
-    value=f"{registros_criticos:,}".replace(",", "."),
-    delta=f"Superan {LIMITE_OMS} de referencia",
-    delta_color="inverse",
+    value=valor_eventos,
+    delta=delta_eventos,
+    delta_color="inverse" if registros_criticos is not None else "off",
 )
 col7.metric(
     label="TENDENCIA DEL PERÍODO",
@@ -413,27 +464,25 @@ st.markdown("---")
 # ---------------------------------------------------------
 # GLOSARIO TÉCNICO DINÁMICO E INTEGRAL
 # ---------------------------------------------------------
-# Construye el glosario en función de las variables detectadas en el dataset
-# para garantizar que lectores no técnicos entiendan cada sigla disponible.
 with st.expander("Guía de Lectura y Glosario Técnico Detallado (Haga clic para expandir)"):
     st.markdown(
         """
-- **¿Qué es el Límite de Referencia OMS?** Es el valor internacional recomendado por la **Organización Mundial de la Salud** (fijado en 15.0 unidades para control general) para proteger la salud respiratoria a largo plazo. Superar este umbral representa una alerta ambiental.
-- **Catálogo de Contaminantes y Variables del Sistema:**
+- **Límites de Referencia por Contaminante:** Cada contaminante con guía configurada se evalúa frente a su propio umbral en µg/m³ (PM2.5: 5,0; PM10: 15,0; NO2: 10,0; SO2: 40,0; O3: 100,0; CO: 4.000,0). Las variables sin límite configurado (`NO`, `PST`) se presentan únicamente como monitoreo descriptivo.
+- **Catálogo de Contaminantes Atmosféricos:**
         """
     )
 
     for var in variables_disponibles:
         descrip = GLOSARIO_CONTAMINANTES.get(
             var,
-            f"**{var}:** Variable ambiental registrada en el sistema de monitoreo de calidad del aire del IDEAM.",
+            f"**{var}:** Contaminante atmosférico registrado en el sistema de monitoreo del IDEAM.",
         )
         st.markdown(f"- {descrip}")
 
     st.markdown(
         """
 - **Concentración Media:** Promedio aritmético de los niveles medidos en el período y región seleccionados.
-- **Estabilidad (Desviación Estándar):** Mide la dispersión de los datos. Un valor elevado indica fluctuaciones extremas y repentinas en la contaminación.
+- **Estabilidad (Desviación Estándar):** Mide la dispersión de los datos. Un valor elevado indica fluctuaciones amplias en las concentraciones registradas.
         """
     )
 
@@ -449,15 +498,24 @@ ubicacion_texto = (
 )
 
 if not df_filtered.empty:
-    estado_alerta = "CRÍTICO" if promedio_general > LIMITE_OMS else "ESTABLE"
-    tendencia_texto = "a la alza" if variacion_interanual > 0 else "a la baja"
+    tendencia_texto = "al alza" if variacion_interanual > 0 else "a la baja"
+    if umbral_activo is not None:
+        estado_alerta = "CRÍTICO" if promedio_general > umbral_activo else "ESTABLE"
+        cierre_umbral = (
+            f"clasificado como **{estado_alerta}** frente al umbral de "
+            f"referencia (**{umbral_activo:g} {unidad_activa}** — {criterio_activo})"
+        )
+    else:
+        cierre_umbral = (
+            "sin umbral de referencia OMS asignado en este panel (monitoreo descriptivo)"
+        )
+
     st.info(
         f"**Diagnóstico Gerencial:** Durante el período **{ano_inicio}–{ano_fin}**, "
         f"la concentración media de **{contaminante_sel}** {ubicacion_texto} se "
-        f"sitúa en **{promedio_general:.2f}**, un nivel clasificado como "
-        f"**{estado_alerta}** frente al umbral internacional de referencia "
-        f"({LIMITE_OMS}). Se registra una tendencia **{tendencia_texto}** del "
-        f"**{variacion_interanual:+.1f}%**, evidenciando presión ambiental en "
+        f"sitúa en **{promedio_general:.2f} {unidad_activa}**, {cierre_umbral}. "
+        f"Se registra una tendencia **{tendencia_texto}** del "
+        f"**{variacion_interanual:+.1f}%**, con cobertura en "
         f"**{municipios_cobertura}** municipios analizados."
     )
 
@@ -471,8 +529,6 @@ tab_general, tab_comparativa, tab_exportar = st.tabs(
 )
 
 with tab_general:
-    # Fila superior: evolución temporal agregada por año y ranking de los 10
-    # municipios con mayor concentración promedio para el filtro activo.
     col_grafico, col_ranking = st.columns([1.2, 1])
 
     with col_grafico:
@@ -487,19 +543,20 @@ with tab_general:
                 y="Promedio",
                 markers=True,
                 line_shape="spline",
-                title=f"Comportamiento Histórico Promedio de {contaminante_sel}",
+                title=f"Comportamiento Histórico Promedio de {contaminante_sel} ({unidad_activa})",
             )
-            fig_line.add_hline(
-                y=LIMITE_OMS,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=f"Límite Seguro ({LIMITE_OMS})",
-            )
+            if umbral_activo is not None:
+                fig_line.add_hline(
+                    y=umbral_activo,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"Límite Referencia ({umbral_activo:g} {unidad_activa})",
+                )
             fig_line.update_layout(
                 margin={"r": 0, "t": 30, "l": 0, "b": 0},
                 height=380,
                 xaxis_title="Año de Monitoreo",
-                yaxis_title=f"Concentración Media ({contaminante_sel})",
+                yaxis_title=f"Concentración Media ({contaminante_sel}, {unidad_activa})",
             )
             st.plotly_chart(fig_line, use_container_width=True)
         else:
@@ -525,19 +582,25 @@ with tab_general:
                 text_auto=".2f",
                 color="Promedio",
                 color_continuous_scale="Oranges",
-                title=f"Ranking de Municipios Críticos ({contaminante_sel})",
+                title=f"Ranking de Municipios ({contaminante_sel}, {unidad_activa})",
             )
-            fig_bar.add_vline(
-                x=LIMITE_OMS,
-                line_dash="dash",
-                line_color="red",
-                annotation_text="Límite OMS",
-            )
+            if umbral_activo is not None:
+                max_eje_x = max(
+                    float(df_ranking["Promedio"].max()),
+                    umbral_activo,
+                )
+                if umbral_activo <= max_eje_x * 1.15:
+                    fig_bar.add_vline(
+                        x=umbral_activo,
+                        line_dash="dash",
+                        line_color="red",
+                        annotation_text=f"Límite ({umbral_activo:g} {unidad_activa})",
+                    )
             fig_bar.update_layout(
                 yaxis={"categoryorder": "total ascending"},
                 margin={"r": 0, "t": 30, "l": 0, "b": 0},
                 height=380,
-                xaxis_title=f"Concentración Promedio ({contaminante_sel})",
+                xaxis_title=f"Concentración Promedio ({contaminante_sel}, {unidad_activa})",
                 yaxis_title="Municipio",
             )
             st.plotly_chart(fig_bar, use_container_width=True)
@@ -546,8 +609,6 @@ with tab_general:
 
     st.markdown("---")
 
-    # Fila inferior: mapa georreferenciado a la izquierda y ficha de autoridad
-    # ambiental + tabla resumen de municipios monitoreados a la derecha.
     titulo_mapa = (
         f"Ubicación de Estaciones y Gestión Ambiental en {depto_sel}"
         if depto_sel != "Todos los departamentos"
@@ -563,8 +624,6 @@ with tab_general:
         df_geo_valid = df_filtered.dropna(subset=["Latitud", "Longitud"]).copy()
 
         if not df_geo_valid.empty:
-            # Consolida por municipio y autoridad ambiental para evitar trazar
-            # múltiples marcadores superpuestos de la misma ubicación.
             df_estaciones = df_geo_valid.groupby(
                 ["Nombre del Departamento", "Nombre del Municipio", "Autoridad Ambiental"],
                 as_index=False,
@@ -574,8 +633,6 @@ with tab_general:
                 Promedio_Estacion=("Promedio", "mean"),
                 Muestras=("Promedio", "count"),
             )
-            # Asegura un tamaño mínimo positivo para que el parámetro `size` de
-            # Plotly no falle si un promedio es cero o negativo.
             df_estaciones["Tamano_Burbuja"] = df_estaciones[
                 "Promedio_Estacion"
             ].clip(lower=1.0)
@@ -590,7 +647,11 @@ with tab_general:
 
             with col_map_view:
                 fig_map = crear_mapa_estaciones(
-                    df_estaciones, contaminante_sel, centro_mapa, zoom_mapa
+                    df_estaciones,
+                    contaminante_sel,
+                    unidad_activa,
+                    centro_mapa,
+                    zoom_mapa,
                 )
                 st.plotly_chart(fig_map, use_container_width=True)
 
@@ -612,6 +673,7 @@ with tab_general:
                     f"**Municipios / Puntos Georreferenciados:** {len(df_estaciones)}"
                 )
 
+                col_media_est = f"Media ({contaminante_sel}, {unidad_activa})"
                 df_tabla_est = (
                     df_estaciones[
                         [
@@ -626,13 +688,11 @@ with tab_general:
                         columns={
                             "Nombre del Municipio": "Municipio",
                             "Nombre del Departamento": "Departamento",
-                            "Promedio_Estacion": f"Media ({contaminante_sel})",
+                            "Promedio_Estacion": col_media_est,
                         }
                     )
                 )
-                df_tabla_est[f"Media ({contaminante_sel})"] = df_tabla_est[
-                    f"Media ({contaminante_sel})"
-                ].round(2)
+                df_tabla_est[col_media_est] = df_tabla_est[col_media_est].round(2)
                 st.dataframe(df_tabla_est, use_container_width=True, height=280)
 
             st.caption(
@@ -648,12 +708,10 @@ with tab_general:
         st.warning("No hay datos geográficos disponibles para los filtros seleccionados.")
 
 with tab_comparativa:
-    # Contrasta dos departamentos en el mismo contaminante y rango de años
-    # definidos en la barra lateral, sin depender del filtro departamental principal.
     st.markdown("#### Análisis de Comparativa Cruzada por Departamento")
     st.markdown(
         "Seleccione dos regiones o departamentos diferentes para contrastar "
-        "su comportamiento histórico frente al estándar."
+        "su comportamiento histórico."
     )
 
     col_comp1, col_comp2 = st.columns(2)
@@ -689,19 +747,20 @@ with tab_comparativa:
             color="Nombre del Departamento",
             markers=True,
             line_shape="spline",
-            title=f"Comparativa Cruzada de {contaminante_sel}: {dep1} vs {dep2}",
+            title=f"Comparativa Cruzada de {contaminante_sel} ({unidad_activa}): {dep1} vs {dep2}",
         )
-        fig_comp.add_hline(
-            y=LIMITE_OMS,
-            line_dash="dash",
-            line_color="red",
-            annotation_text="Límite Seguro Referencia",
-        )
+        if umbral_activo is not None:
+            fig_comp.add_hline(
+                y=umbral_activo,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Límite Referencia ({umbral_activo:g} {unidad_activa})",
+            )
         fig_comp.update_layout(
             margin={"r": 0, "t": 30, "l": 0, "b": 0},
             height=420,
             xaxis_title="Año de Evaluación",
-            yaxis_title=f"Concentración Promedio ({contaminante_sel})",
+            yaxis_title=f"Concentración Promedio ({contaminante_sel}, {unidad_activa})",
         )
         st.plotly_chart(fig_comp, use_container_width=True)
 
@@ -726,8 +785,6 @@ with tab_comparativa:
         )
 
 with tab_exportar:
-    # Permite auditar y descargar el subconjunto exacto de registros que
-    # respalda los KPIs y gráficos visibles en ese momento.
     st.markdown("#### Exportación de Datos Procesados")
     st.markdown(
         "Descargue el conjunto de datos filtrados actualmente para "

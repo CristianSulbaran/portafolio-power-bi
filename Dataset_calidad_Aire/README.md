@@ -1,6 +1,6 @@
 # Tablero de Calidad del Aire en Colombia (IDEAM)
 
-Este proyecto presenta un tablero interactivo para consultar y analizar datos históricos de calidad del aire en Colombia (2011–2025), construido a partir del archivo limpio `airquality_clean_II.csv`. La idea es que cualquier persona pueda revisar cómo se comportan distintos contaminantes, qué municipios concentran mayores niveles, qué autoridad ambiental está detrás de cada departamento y descargar los datos que está viendo.
+Este proyecto presenta un tablero interactivo para consultar y analizar datos históricos de calidad del aire en Colombia (2011–2025). La idea es que cualquier persona pueda revisar cómo se comportan distintos contaminantes, qué municipios concentran mayores niveles, qué autoridad ambiental está detrás de cada departamento y descargar los datos que está viendo.
 
 Accede al dashboard interactivo desplegado en Streamlit: 
 <p align="center">
@@ -41,7 +41,8 @@ Dataset_calidad_Aire/
 
 ### Vista general de la pantalla
 
-<img width="1884" height="925" alt="Captura de pantalla 2026-11-19 154531" src="https://github.com/user-attachments/assets/d6dff7f4-794f-4370-9362-00fc0d5123d5" />
+<img width="1880" height="930" alt="Captura de pantalla 2026-11-20 123213" src="https://github.com/user-attachments/assets/b2ef5af0-d2e7-4714-ba7c-eb2dd56e9586" />
+
 
 Aqui se ve el tablero completo en pantalla ancha. A la izquierda queda el panel de filtros y en el cuerpo principal se distribuyen las métricas, el resumen de estado, las pestañas de navegación, los gráficos y el mapa.
 
@@ -74,7 +75,7 @@ Debajo de las tarjetas se encuentra el **glosario técnico** desplegable clave p
 
 ### Tendencia anual y ranking de municipios
 
-<img width="1779" height="462" alt="Captura de pantalla 2026-11-19 154305" src="https://github.com/user-attachments/assets/6961ff9a-4f07-4509-b813-a075f66324a4" />
+<img width="1806" height="527" alt="Captura de pantalla 2026-11-20 122614" src="https://github.com/user-attachments/assets/9006f843-ecf9-4ae0-bf31-0208095c47c4" />
 
 
 Dentro de la pestaña **Analítica General y Mapas**, estos dos gráficos se leen en conjunto para evaluar el comportamiento territorial y temporal:
@@ -85,7 +86,7 @@ Dentro de la pestaña **Analítica General y Mapas**, estos dos gráficos se lee
 
 ### Mapa de estaciones y autoridad ambiental
 
-<img width="1804" height="531" alt="Captura de pantalla 2026-11-19 154422" src="https://github.com/user-attachments/assets/d3645c6a-b11d-4fe3-8584-8c7f2bbfc2ff" />
+<img width="1809" height="598" alt="Captura de pantalla 2026-11-20 122912" src="https://github.com/user-attachments/assets/898b4443-3a3a-46d2-b9dc-a75643e532b9" />
 
 
 Más abajo en la misma pestaña aparece el mapa con los municipios o puntos georreferenciados, donde el color y el tamaño de cada punto reflejan la concentración media. El zoom se ajusta según lo que estés viendo (todo el país o un departamento).
@@ -94,7 +95,7 @@ A la derecha se indica qué autoridad ambiental corresponde al departamento eleg
 
 ### Comparativa entre dos departamentos
 
-<img width="1791" height="784" alt="Captura de pantalla 2026-11-19 154336" src="https://github.com/user-attachments/assets/07d45d01-8e04-4352-92eb-ce7dc6caabab" />
+<img width="1787" height="857" alt="Captura de pantalla 2026-11-20 123007" src="https://github.com/user-attachments/assets/1b38c627-8ada-4201-a4da-7a8ead4642f6" />
 
 
 En la pestaña *Comparativa Territorial* puedes elegir dos departamentos (Región A y Región B) para comparar sus curvas anuales en un mismo gráfico usando el contaminante y el rango de años que tengas activos en la barra lateral. Debajo se muestra una tabla resumida con el promedio, el pico máximo y el total de muestras de cada uno.
